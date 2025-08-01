@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+    <title>获取鼠标点击经纬度</title>
+    <!-- 示例样式 -->
+    <link href="https://map.sgcc.com.cn/products/js-sdk/v3/assets/css/demo.css" rel="stylesheet" />
+    <style>
+      html,
+      body {
+        padding: 0;
+        margin: 0;
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="map" style="width: 100%; height: 100%"></div>
+    <div class="input-card">
+      <h4>点击获取经纬度：</h4>
+      <div class="input-item">
+        <input type="text" readonly="true" id="lnglat" style="width: 100%" />
+      </div>
+    </div>
+    <script src="https://map.sgcc.com.cn/maps?v=3.0.0"></script>
+    <script>
+      var map;
+
+      // 申请的key和sn
+      SGMap.tokenTask
+        .login("6c79050a2980311899dce77493288b92", "7157a38a73cf3067a1e69d1712e91bf9")
+        .then(function () {
+          initMap();
+        });
+
+      function initMap() {
+        map = new SGMap.Map({
+          // 地图绑定的DOM元素ID
+          container: "map",
+          // 地图样式
+          style: "aegis://styles/aegis/StreetsDark",
+          // 默认缩放层级
+          zoom: 17,
+          // 地图中心点
+          center: [118.635548,32.0540330],
+          // 地图默认字体
+          localIdeographFontFamily: "Microsoft YaHei Regular"
+        });
+        // 绑定事件
+        bindEvent();
+      }
+
+      function bindEvent() {
+        map.on("click", function (e) {
+          console.log(e);
+          document.getElementById("lnglat").value =
+            e.lngLat.lng + "," + e.lngLat.lat;
+        });
+      }
+    </script>
+  </body>
+</html>

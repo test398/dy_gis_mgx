@@ -1,0 +1,15 @@
+{
+  "ascender": 0,
+  "descender": 0,
+  "glyphs": {
+    "65276": {
+      "id": 65276,
+      "height": 18,
+      "left": 4,
+      "top": 36,
+      "width": 13,
+      "bitmap": "RVhkZmZmZmZmZmZmZmZmZmJUP1tzg4aGhoaGhoaGhoaGhoaAbFNphqCmpqampqampqampqammn5gbIysxsbGxsbGxsbGxsbGw6ODY2yMrMza1dXV1dXV1dXV38Ojg2NsjKzMzrW1tbW1tbW1t9fDo4NjbIyszM6ulZWVlZWVl7fXw6ODY2yMrMzOro51dXV1d5e318Ojg2NsjKzMzq6OblVVV3eXt9fDo4NjbIyszM6ujm5ON1d3l7fXw6ODY2yMrMzOro5uTjdXd5e318Ojg2NsjKzMzq6Obk43V3eXt9fDo4NjbIyszM6ujm5ON1d3l7fXw6ODY2yMrMzOro5uTjdXd5e318Ojg2NsjKzMzq6Obk43V3eXt9fDo4NjbIyszM6ujm5OS1d3l7fXw6ODY2yMrMzOro5ua2trd5e318Ojg2NsjKzMzq6Oi4uLi4uXt9fDo4NjbIyszM6uq6urq6urq7fXw6ODY2yMrMzTy8vLy8vLy8vL2sOjg2NsjKzMz8/Pz8/Pz8/Pz8/Do4Nja4qnr6+vr6+vr6+vr6+vr5+BYmB5jI+Pj4+Pj4+Pj4+Pj4+Ic1hMYW1vb29vb29vb29vb29va1tG",
+      "advance": 0
+    }
+  }
+}
