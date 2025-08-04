@@ -20,7 +20,7 @@ def main():
       ]
     )
 
-    print(completion.choices[0].message);
+    print(completion.choices[0].message)
 
 
 def main2():
@@ -198,6 +198,10 @@ def main8():
         }
     print(json.dumps(dic, ensure_ascii=False))
 
+
+def main9():
+    print(dict(os.environ).get('OPENAI_API_KEY'))
+
 if __name__ == '__main__':
     # main2()
     # main3()
@@ -205,4 +209,5 @@ if __name__ == '__main__':
     # main5()
     # main6()
     # main7()
-    main8()
+    # main8()
+    main9()

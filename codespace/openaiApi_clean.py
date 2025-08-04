@@ -8,13 +8,11 @@ import time
 
 # Load environment variables from .env file
 load_dotenv()
-APIKEY = "sk-12ddc17853354879ba2a18830f3a41d7"
-
 
 # 读取标注json的内容
-with open(os.path.abspath('标注数据目录/有对应关系的标注结果数据/zlq.json'), 'r', encoding='utf-8') as f:
+with open('标注数据目录/有对应关系的标注结果数据/zlq.json', 'r', encoding='utf-8') as f:
     content = f.read()
-with open(os.path.abspath('标注数据目录/有对应关系的标注结果数据/zlh.json'), 'r', encoding='utf-8') as f:
+with open('标注数据目录/有对应关系的标注结果数据/zlh.json', 'r', encoding='utf-8') as f:
     content2 = f.read()
 
 # System prompt with background and rules
@@ -27,7 +25,6 @@ system_prompt = """
 - GIS：地理信息系统，包含空间地物信息。
 - 站房：配电变压器等设备的集中安置建筑。
 - points：二维坐标点数组，表示设备空间位置。
-
 
 【设备类型说明】
 - 档距段/连接线：连接各设备的线路，需沿道路排布。
@@ -113,11 +110,11 @@ start_time = time.perf_counter()
 
 client = OpenAI(
     # API key loaded from .env file
-    api_key=APIKEY,
+    api_key=os.environ.get("DASHSCOPE_API_KEY"),
 )
 try:
     completion = client.chat.completions.create(
-        model="o3",  # Using OpenAI's o3 model
+        model="qwen-vl-max-2025-04-08",  # Using OpenAI's o3 model
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
@@ -164,6 +161,7 @@ try:
         
 except Exception as api_error:
     print(f"API调用错误: {api_error}")
+    raise api_error
 
 # 记录结束时间并计算运行时间
 end_time = time.perf_counter()

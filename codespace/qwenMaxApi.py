@@ -1,8 +1,8 @@
 import os
 from openai import OpenAI
 # 读取标注json的内容
-content = open('zlq.json', 'r', encoding='utf-8').read()
-content2 = open('zlh.json', 'r', encoding='utf-8').read()
+content = open('标注数据目录/有对应关系的标注结果数据/zlq.json', 'r', encoding='utf-8').read()
+content2 = open('标注数据目录/有对应关系的标注结果数据/zlh.json', 'r', encoding='utf-8').read()
 
 
 prompt = f"""
