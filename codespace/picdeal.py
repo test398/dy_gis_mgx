@@ -103,8 +103,9 @@ def getBuilldingCoordinat2(image_rgb, psrId, zoom, center_point, target_list=TAR
         for k1, k2 in roundList:
             if 0 <= center[0] + k1 < len(image_rgb) and 0 <= center[1] + k2 < len(image_rgb[center[0] + k1]):
                 image_rgb[center[0] + k1, center[1] + k2] = [255, 0, 0]
-        lng, lat = point(center[1], center[0], zoom, center_point, height, width)
-        data_dict[key] = {'center': [(lng, lat), (center[1], center[0])], 'angle': round(angle + 90, 2), 'area': len(val), 'vertices': []}
+        # lng, lat = point(center[1], center[0], zoom, center_point, height, width)  # 计算经纬度坐标的方法
+        # data_dict[key] = {'center': [(lng, lat), (center[1], center[0])], 'angle': round(angle + 90, 2), 'area': len(val), 'vertices': []}
+        data_dict[key] = {'center': [(center[1], center[0]), (center[1], center[0])], 'angle': round(angle + 90, 2), 'area': len(val), 'vertices': []}  # 只取像素坐标
 
         # 新增：提取绿色区域顶点并转换为经纬度
         mask = np.zeros((width, height), dtype=np.uint8)
@@ -124,7 +125,9 @@ def getBuilldingCoordinat2(image_rgb, psrId, zoom, center_point, target_list=TAR
 
 def getBuilldingCoordinat(image_path, psrId, zoom, center_point):
     data_dict = {}
-    image = cv2.imread(image_path)
+    with open(image_path, 'rb') as f:
+        img_bytes = np.frombuffer(f.read(), dtype=np.uint8)
+        image = cv2.imdecode(img_bytes, cv2.IMREAD_COLOR)
     width, height = image.shape[:2]
     # print(width, height)
     # return
@@ -171,8 +174,9 @@ def getBuilldingCoordinat(image_path, psrId, zoom, center_point):
         for k1, k2 in roundList:
             if 0 <= center[0] + k1 < len(image_rgb) and 0 <= center[1] + k2 < len(image_rgb[center[0] + k1]):
                 image_rgb[center[0] + k1, center[1] + k2] = [255, 0, 0]
-        lng, lat = point(center[1], center[0], zoom, center_point, height, width)
-        data_dict[key] = {'center': [(lng, lat), (center[1], center[0])], 'angle': round(angle + 90, 2), 'area': len(val), 'vertices': []}
+        # lng, lat = point(center[1], center[0], zoom, center_point, height, width)
+        # data_dict[key] = {'center': [(lng, lat), (center[1], center[0])], 'angle': round(angle + 90, 2), 'area': len(val), 'vertices': []}
+        data_dict[key] = {'center': [(center[1], center[0]), (center[1], center[0])], 'angle': round(angle + 90, 2), 'area': len(val), 'vertices': []}
 
         # 新增：提取绿色区域顶点并转换为经纬度
         mask = np.zeros((width, height), dtype=np.uint8)
@@ -194,25 +198,30 @@ def getBuilldingCoordinat(image_path, psrId, zoom, center_point):
     resDict = {'建筑': data_dict, '道路': sub_data, '河流': sub_data2}
     image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
     
-    cv2.imshow("Contour Image", image_bgr)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-    os.makedirs("d:/res", exist_ok=True)
-    json.dump(resDict, open(f'd:/res/{psrId}.json', 'w', encoding="U8"), ensure_ascii=False, indent=4)
-    os.makedirs("d:/res", exist_ok=True)
-    cv2.imwrite(f"d:/res/{psrId}.png", image_bgr)
+    # cv2.imshow("Contour Image", image_bgr)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+    json.dump(resDict, open(rf'标注数据目录\建筑道路河流图片\json/{psrId}.json', 'w', encoding="U8"), ensure_ascii=False, indent=4)
+    result, buf = cv2.imencode(f'.png', image_bgr)
+    with open(rf"标注数据目录\建筑道路河流图片\json/{psrId}_标记.png", 'wb') as f:
+        buf.tofile(f)
+    # cv2.imwrite(rf"标注数据目录\建筑道路河流图片\json/{psrId}_标记.png", image_bgr)
     # print(len(dic2), len(data_dict), data_dict.keys())
     return data_dict
 
 
 def main():
-    picDir = r"C:\Users\jjf55\Desktop\Building"
+    picDir = r"标注数据目录\建筑道路河流图片\images"
     for pic in tqdm(os.listdir(picDir)):
         if not pic.endswith('.png'):
             continue
         img = os.path.join(picDir, pic)
         psrId = pic.split('.')[0]
         json_path = os.path.join(picDir, f'{psrId}.json')
+        if not os.path.exists(json_path):
+            print(f"跳过 {psrId}，未找到对应的json文件")
+            os.remove(img)  # 删除没有json的图片
+            continue
         center_point = json.loads(open(json_path, 'r', encoding='utf-8').read())['center']
         zoom = 18
         getBuilldingCoordinat(img, psrId, zoom, center_point)

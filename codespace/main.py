@@ -98,8 +98,8 @@ def process_batch_with_tracking(input_list, models=['qwen-vl-max'], max_workers=
     os.environ['HTTP_PROXY'] = 'http://127.0.0.1:7890'
     os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:7890'
     wandb.init(project="gis-beautification", reinit=True)
-    del os.environ['HTTP_PROXY']
-    del os.environ['HTTPS_PROXY']
+    # del os.environ['HTTP_PROXY']
+    # del os.environ['HTTPS_PROXY']
     # 准备任务列表
     tasks = []
     for image_path, image_data in input_list[:5]: # 限制 5 张图测试
@@ -121,6 +121,8 @@ def process_batch_with_tracking(input_list, models=['qwen-vl-max'], max_workers=
                         output_tokens=result['output_tokens']
                     )
     # 记录批量处理汇总
+    # os.environ['HTTP_PROXY'] = 'http://127.0.0.1:7890'
+    # os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:7890'
     wandb.log({
         'batch_images_count': len(set(r['image_path'] for r in results)),
         'batch_avg_beauty_score': sum(r['beauty_score'] for r in results) / len(results)
