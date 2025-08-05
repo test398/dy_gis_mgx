@@ -25,3 +25,7 @@ logs
 
 # Temporary code directories
 codespace/tempCode/
+
+/wandb
+/.idea
+temp

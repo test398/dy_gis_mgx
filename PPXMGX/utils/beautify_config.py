@@ -5,6 +5,9 @@
 包含各种美化参数、规则和阈值
 """
 
+import math
+
+
 class BeautifyConfig:
     """连线美化配置类"""
     
