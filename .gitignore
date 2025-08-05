@@ -22,3 +22,6 @@ Thumbs.db
 temp
 /wandb
 logs
+
+# Temporary code directories
+codespace/tempCode/

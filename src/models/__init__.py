@@ -6,14 +6,16 @@
 
 from .base_model import BaseModel, ModelPricing
 from .qwen_model import QwenModel
+from .glm_model import GLMModel
+from .kimi_model import KimiModel
 
 # 模型注册表
 MODEL_REGISTRY = {
     'qwen': QwenModel,
+    'glm': GLMModel,
+    'kimi': KimiModel,
     # 其他模型将在后续添加
     # 'openai': OpenAIModel,
-    # 'kimi': KimiModel,
-    # 'glm': GLMModel,
 }
 
 def get_model(model_type: str, **kwargs) -> BaseModel:
