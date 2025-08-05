@@ -1,0 +1,15 @@
+[project]
+name = "dy-gis-mgx"
+version = "0.1.0"
+description = "电网台区美化治理与打分系统 - Phase 1基础框架"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "matplotlib>=3.5.0",
+    "numpy>=1.21.0",
+    "python-dotenv>=0.19.0",
+    "requests>=2.25.0",
+]
+
+[project.optional-dependencies]
+dev = ["wandb>=0.15.0"]

@@ -1,0 +1,22 @@
+- Use `uv` for python package management.
+- **WINDOWS POWERSHELL**: Always use PowerShell-compatible syntax for all terminal commands since we're on Windows. Avoid Unix/Linux syntax that won't work in PowerShell.
+- Always refer to "PRD.md" when generating new code.
+- Always included a Actual vs. Predicted value scatter plot with KDE estimate
+- Always interpret the model with feature importance. If it's a linear model, look at the coefficients. If it's a nonlinear, you can use something like a permutation test, LIME, or SHAP.
+- Path to pandoc is "C:\Users\juyil\AppData\Local\Pandoc\pandoc.exe"
+- If there is emoji that prevents latex engine to work when converting markdowns to pdfs, just delete the emoji and use latex engine for pdf conversion.
+- **PANDOC USAGE**: Always use this exact PowerShell syntax for pandoc conversion:
+  `& 'C:\Users\juyil\AppData\Local\Pandoc\pandoc.exe' 'input_file.md' -o 'output_file.pdf' --pdf-engine=xelatex`
+  - **MUST navigate to the directory containing the markdown file first** using `cd path\to\reports`
+  - Use single quotes around all file paths
+  - Use the call operator (&) at the beginning
+  - Always specify --pdf-engine=xelatex for PDF conversion
+  - Don't use double quotes or escape characters in the pandoc command
+  - If PowerShell errors occur, check if the PDF was still created successfully with `dir *new*` or `ls`
+- Whenever you generate a report with plots, state clearly in the caption how each variable is calculate, how each feature is engineered, what the original data file and columns name is. Think about a way to present these information nicely after the main caption - so no distraction from the takeaways.
+- Try to run `plt.tight_layout()` whenever you generate a plot using `matplotlib`.
+- Insert suitable figures or visualizations to any report you generate at your best.
+- Don't use `plt.show()`, which breaks our workflow.
+- **ENCODING**: Always open text, markdown, and log files for writing with `encoding='utf-8'` to avoid code-page issues on Windows.
+- Show run time of every script at completion (use `time.perf_counter()` for start/end timestamps).
+- Don't abuse try except!!! Let it show the error message so we can debug.

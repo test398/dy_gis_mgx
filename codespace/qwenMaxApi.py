@@ -1,4 +1,6 @@
 import os
+import time
+import json
 from openai import OpenAI
 # 读取标注json的内容
 content = open('标注数据目录/有对应关系的标注结果数据/zlq.json', 'r', encoding='utf-8').read()
@@ -91,23 +93,50 @@ prompt = f"""
 """
 
 
+# 记录开始时间
+start_time = time.perf_counter()
+
+print("=== 千问VL-Max API 调用开始 ===")
+print(f"数据文件加载成功，准备调用API...")
+
 client = OpenAI(
     # 若没有配置环境变量，请用百炼API Key将下行替换为：api_key="sk-xxx",
     api_key='sk-12ddc17853354879ba2a18830f3a41d7',
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
 )
-completion = client.chat.completions.create(
-    model="qwen-vl-max-2025-04-08",  # 此处以qwen-vl-plus为例，可按需更换模型名称。模型列表：https://help.aliyun.com/zh/model-studio/getting-started/models
-    extra_body={
-            "parameters": {
-                "vl_high_resolution_images": True  # 启用高分辨率模式
-            }
-        },
-    messages=[{"role": "user","content": [
-            {"type": "image_url",
-             "image_url": {"url": "https://dashscope-file-datacenter-prod-01.oss-cn-beijing.aliyuncs.com/1920596245375804/12139647/5c708a3b589a458d8fadea2e3497149b.1753674342953.png?Expires=1753952360&OSSAccessKeyId=LTAI5tFEd57BcgTFgxpSL5j1&Signature=5%2FNGt8lygFBYGckYV3APNdiyFEQ%3D"}},
-            {"type": "text", "text": f""" """}
-            ]}]
-    )
-print(completion.model_dump_json())
+
+try:
+    completion = client.chat.completions.create(
+        model="qwen-vl-max-2025-04-08",  # 千问VL-Max模型
+        extra_body={
+                "parameters": {
+                    "vl_high_resolution_images": True  # 启用高分辨率模式
+                }
+            },
+        messages=[{"role": "user","content": [
+                {"type": "image_url",
+                 "image_url": {"url": "https://dashscope-file-datacenter-prod-01.oss-cn-beijing.aliyuncs.com/1920596245375804/12139647/5c708a3b589a458d8fadea2e3497149b.1753674342953.png?Expires=1753952360&OSSAccessKeyId=LTAI5tFEd57BcgTFgxpSL5j1&Signature=5%2FNGt8lygFBYGckYV3APNdiyFEQ%3D"}},
+                {"type": "text", "text": prompt}
+                ]}]
+        )
+    
+    # 获取响应内容
+    response_content = completion.choices[0].message.content
+    print("=== 千问VL-Max 响应 ===")
+    print(response_content)
+    
+    # 保存原始响应到文件
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    with open(f'qwen_response_{timestamp}.txt', 'w', encoding='utf-8') as f:
+        f.write(response_content)
+    print(f"响应已保存到: qwen_response_{timestamp}.txt")
+
+except Exception as api_error:
+    print(f"API调用错误: {api_error}")
+
+# 记录结束时间并计算运行时间
+end_time = time.perf_counter()
+run_time = end_time - start_time
+print(f"\n=== 脚本运行完成 ===")
+print(f"总运行时间: {run_time:.2f} 秒")
 
