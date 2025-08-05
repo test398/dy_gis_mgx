@@ -9,6 +9,8 @@ import json
 from typing import List, Dict, Any
 import requests
 
+from core.data_types import GISData
+
 from .base_model import BaseModel, ModelPricing
 
 
@@ -227,18 +229,18 @@ class QwenModel(BaseModel):
             self.logger.info(f"成功解析 {len(processed_devices)} 个设备")
             
             # 创建GIS数据对象
-            return {
-                "devices": processed_devices,
-                "buildings": [],  # 千问响应中不包含建筑物信息
-                "roads": [],      # 千问响应中不包含道路信息
-                "rivers": [],     # 千问响应中不包含河流信息
-                "boundaries": {}, # 千问响应中不包含边界信息
-                "metadata": {
+            return GISData(
+                devices=processed_devices,
+                buildings=[],  # 千问响应中不包含建筑物信息
+                roads=[],      # 千问响应中不包含道路信息
+                rivers=[],     # 千问响应中不包含河流信息
+                boundaries={}, # 千问响应中不包含边界信息
+                metadata={
                     'source': 'qwen_treatment',
                     'model': self.model_name,
                     'device_count': len(processed_devices)
                 }
-            }
+            )
             
         except Exception as e:
             self.logger.error(f"解析千问治理响应失败: {e}")
@@ -259,26 +261,29 @@ class QwenModel(BaseModel):
             self.logger.debug("开始解析千问评分响应")
             
             # 尝试提取JSON部分
-            json_start = response.find('{')
-            json_end = response.rfind('}') + 1
-            
-            if json_start != -1 and json_end != -1:
-                json_str = response[json_start:json_end]
-                data = json.loads(json_str)
+            if not isinstance(response, str):
+                data = json.loads(response[0]['text'][7:-3])
             else:
-                # 如果没有JSON格式，尝试从文本中提取分数
-                import re
-                score_match = re.search(r'(\d+(?:\.\d+)?)', response)
-                if score_match:
-                    score = float(score_match.group(1))
-                    data = {
-                        "beauty_score": score,
-                        "dimension_scores": {},
-                        "improvement_analysis": {},
-                        "reasoning": response
-                    }
+                json_start = response.find('{')
+                json_end = response.rfind('}') + 1
+                
+                if json_start != -1 and json_end != -1:
+                    json_str = response[json_start:json_end]
+                    data = json.loads(json_str)
                 else:
-                    raise ValueError("无法从响应中提取评分信息")
+                    # 如果没有JSON格式，尝试从文本中提取分数
+                    import re
+                    score_match = re.search(r'(\d+(?:\.\d+)?)', response)
+                    if score_match:
+                        score = float(score_match.group(1))
+                        data = {
+                            "beauty_score": score,
+                            "dimension_scores": {},
+                            "improvement_analysis": {},
+                            "reasoning": response
+                        }
+                    else:
+                        raise ValueError("无法从响应中提取评分信息")
             
             # 确保必要字段存在
             if 'beauty_score' not in data:
