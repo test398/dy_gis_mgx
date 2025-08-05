@@ -200,6 +200,7 @@ def process_areas(input_path: str, output_dir: str, models: list, config: dict) 
     from core.pipeline import process_batch
     from core.data_types import BatchInput, ImageInput, GISData
     from data.input_loader import load_gis_data_from_json  # 需要实现
+    from data import save_batch_results  # 需要实现
     # 
     # # 加载所有数据文件并创建ImageInput列表
     inputs = []
@@ -223,7 +224,7 @@ def process_areas(input_path: str, output_dir: str, models: list, config: dict) 
     )
     # 
     # # 保存结果到输出目录
-    # save_batch_results(batch_result, output_dir)  # 需要实现
+    save_batch_results(batch_result, output_dir)  # 需要实现
     
     print("⚠️  台区处理功能待实现")
 
