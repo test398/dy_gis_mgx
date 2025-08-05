@@ -1,3 +1,31 @@
+# Environment variables
+.env
+codespace/.env
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+temp
+/wandb
+logs
+
+# Temporary code directories
+codespace/tempCode/
+
 /wandb
 /.idea
 temp
