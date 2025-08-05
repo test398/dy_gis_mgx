@@ -10,6 +10,8 @@ import time
 import logging
 import json
 from dataclasses import dataclass
+from models.prompt import system_prompt, user_prompt
+from core.data_types import GISData, TreatmentResponse
 
 
 @dataclass
@@ -50,14 +52,14 @@ class BaseModel(ABC):
         self.extra_headers = kwargs.get('extra_headers', {})
         
         # 设置日志格式
-        if not self.logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            )
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
-            self.logger.setLevel(logging.INFO)
+        # if not self.logger.handlers:
+        #     handler = logging.StreamHandler()
+        #     formatter = logging.Formatter(
+        #         '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        #     )
+        #     handler.setFormatter(formatter)
+        #     self.logger.addHandler(handler)
+        #     self.logger.setLevel(logging.INFO)
     
     @abstractmethod
     def _make_api_call(self, messages: List[dict], **kwargs) -> Dict[str, Any]:
@@ -83,7 +85,7 @@ class BaseModel(ABC):
         """添加图片到消息 (不同模型实现不同)"""
         pass
     
-    def beautify(self, gis_data: dict, prompt: str, image_path: Optional[str] = None) -> Dict[str, Any]:
+    def beautify(self, gis_data: dict, prompt: str, image_path: Optional[str] = None) -> TreatmentResponse:
         """
         美化治理接口 (通用实现)
         
@@ -115,14 +117,14 @@ class BaseModel(ABC):
             
             self.logger.info(f"治理完成，处理时间: {processing_time:.2f}s")
             
-            return {
-                "treated_gis_data": treated_gis_data,
-                "input_tokens": api_result.get("usage", {}).get("input_tokens", 0),
-                "output_tokens": api_result.get("usage", {}).get("output_tokens", 0),
-                "processing_time": processing_time,
-                "raw_response": api_result["response"],
-                "confidence_score": self._extract_confidence(api_result["response"])
-            }
+            return TreatmentResponse(
+                treated_gis_data=treated_gis_data,
+                input_tokens=api_result.get("usage", {}).get("input_tokens", 0),
+                output_tokens=api_result.get("usage", {}).get("output_tokens", 0),
+                processing_time=processing_time,
+                raw_response=api_result["response"],
+                confidence_score=self._extract_confidence(api_result["response"])
+            )
             
         except Exception as e:
             self.logger.error(f"治理处理失败: {e}")
@@ -191,19 +193,19 @@ class BaseModel(ABC):
         gis_json = json.dumps(gis_data, ensure_ascii=False, indent=2)
         
         user_message = f"""
-{prompt}
+            {prompt}
 
-## 当前台区GIS数据:
-```json
-{gis_json}
-```
+            ## 当前台区GIS数据:
+            ```json
+            {gis_json}
+            ```
 
-请基于以上数据进行美观性治理，返回JSON格式的优化后数据。
-返回格式应包含: devices, buildings, roads, rivers, boundaries, metadata 字段。
-"""
+            请基于以上数据进行美观性治理，返回JSON格式的优化后数据, 不要包含任何其他内容和代码内容。
+            返回格式应包含: devices, buildings, roads, rivers, boundaries, metadata 字段。
+            """
         
         return [
-            {"role": "system", "content": "你是电网台区布局优化专家，擅长优化设备空间布局以提升美观性。"},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message}
         ]
     
@@ -254,7 +256,7 @@ class BaseModel(ABC):
             {"role": "user", "content": user_message}
         ]
     
-    def _parse_treatment_response(self, response: str) -> dict:
+    def _parse_treatment_response(self, response: str) -> GISData:
         """解析治理响应为GIS数据"""
         try:
             # 尝试提取JSON部分
@@ -269,14 +271,14 @@ class BaseModel(ABC):
                 data = json.loads(response)
             
             # 确保包含必要字段
-            return {
-                "devices": data.get('devices', []),
-                "buildings": data.get('buildings', []),
-                "roads": data.get('roads', []),
-                "rivers": data.get('rivers', []),
-                "boundaries": data.get('boundaries', {}),
-                "metadata": data.get('metadata', {})
-            }
+            return GISData(
+                devices=data.get('devices', []),
+                buildings=data.get('buildings', []),
+                roads=data.get('roads', []),
+                rivers=data.get('rivers', []),
+                boundaries=data.get('boundaries', {}),
+                metadata=data.get('metadata', {})
+            )
             
         except Exception as e:
             self.logger.error(f"解析治理响应失败: {e}")
