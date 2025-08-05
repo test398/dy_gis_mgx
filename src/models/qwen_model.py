@@ -180,26 +180,29 @@ class QwenModel(BaseModel):
             # ]
             
             # 尝试提取JSON数组部分
-            json_start = response.find('[')
-            json_end = response.rfind(']') + 1
-            
-            if json_start != -1 and json_end != -1:
-                json_str = response[json_start:json_end]
-                devices_data = json.loads(json_str)
+            if not isinstance(response, str):
+                devices_data = json.loads(response[0]['text'][7:-3])
             else:
-                # 如果没有找到JSON数组，尝试查找JSON对象
-                json_start = response.find('{')
-                json_end = response.rfind('}') + 1
+                json_start = response.find('[')
+                json_end = response.rfind(']') + 1
+                
                 if json_start != -1 and json_end != -1:
                     json_str = response[json_start:json_end]
-                    single_device = json.loads(json_str)
-                    devices_data = [single_device] if isinstance(single_device, dict) else []
+                    devices_data = json.loads(json_str)
                 else:
-                    raise ValueError("响应中未找到有效的JSON格式")
+                    # 如果没有找到JSON数组，尝试查找JSON对象
+                    json_start = response.find('{')
+                    json_end = response.rfind('}') + 1
+                    if json_start != -1 and json_end != -1:
+                        json_str = response[json_start:json_end]
+                        single_device = json.loads(json_str)
+                        devices_data = [single_device] if isinstance(single_device, dict) else []
+                    else:
+                        raise ValueError("响应中未找到有效的JSON格式")
             
             # 转换为标准的GIS数据格式
             processed_devices = []
-            for device in devices_data:
+            for device in devices_data['devices']:
                 if isinstance(device, dict) and 'id' in device and 'points' in device:
                     # 计算设备中心点作为x, y坐标
                     points = device['points']
