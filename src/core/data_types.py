@@ -23,8 +23,8 @@ class GISData:
         """数据验证和初始化后处理"""
         # 确保所有设备都有必要的字段
         for device in self.devices:
-            if 'x' not in device or 'y' not in device:
-                raise ValueError(f"设备坐标缺少x或y字段: {device}")
+            # if 'x' not in device or 'y' not in device:
+            #     raise ValueError(f"设备坐标缺少x或y字段: {device}")
             if 'type' not in device:
                 device['type'] = 'unknown'
     
