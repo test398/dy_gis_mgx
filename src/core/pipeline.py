@@ -10,7 +10,7 @@ from functools import partial
 from typing import List, Optional, Dict, Any
 import logging
 
-from core.data_types import TreatmentResponse
+from core.data_types import EvaluationResponse, TreatmentResponse
 
 # 导入核心数据类型
 try:
@@ -114,7 +114,7 @@ def process_single_image(
                 "boundaries": treatment_resp.treated_gis_data.boundaries,
                 "metadata": treatment_resp.treated_gis_data.metadata
             }
-            evaluation_resp = model.evaluate(gis_dict, treated_gis_dict)
+            evaluation_resp: EvaluationResponse = model.evaluate(gis_dict, treated_gis_dict)
             eval_time = time.perf_counter() - eval_start
             
             logger.info(f"评分完成，用时: {eval_time:.2f}s, 美观性评分: {evaluation_resp.beauty_score}")
@@ -125,7 +125,7 @@ def process_single_image(
             total_token_usage.output_tokens += evaluation_resp.token_usage.output_tokens
             total_token_usage.total_tokens = total_token_usage.input_tokens + total_token_usage.output_tokens
             
-            cost = model.calculate_cost(total_token_usage)
+            cost = model.calculate_cost(total_token_usage.input_tokens, total_token_usage.output_tokens)
             
             # 8. 组装结果
             result = TreatmentResult(
