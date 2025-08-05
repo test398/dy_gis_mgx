@@ -11,7 +11,7 @@ import logging
 import json
 from dataclasses import dataclass
 from models.prompt import system_prompt, user_prompt
-from core.data_types import GISData, TreatmentResponse
+from core.data_types import EvaluationResponse, GISData, TreatmentResponse
 
 
 @dataclass
@@ -130,7 +130,7 @@ class BaseModel(ABC):
             self.logger.error(f"治理处理失败: {e}")
             raise
     
-    def evaluate(self, original_gis_data: dict, treated_gis_data: dict) -> Dict[str, Any]:
+    def evaluate(self, original_gis_data: dict, treated_gis_data: dict) -> EvaluationResponse:
         """
         美观性评分接口 (通用实现)
         
@@ -155,11 +155,11 @@ class BaseModel(ABC):
             
             self.logger.info(f"评分完成，总分: {evaluation_data.get('beauty_score', 0)}")
             
-            return {
+            return EvaluationResponse(
                 **evaluation_data,
-                "input_tokens": api_result.get("usage", {}).get("input_tokens", 0),
-                "output_tokens": api_result.get("usage", {}).get("output_tokens", 0)
-            }
+                input_tokens=api_result.get("usage", {}).get("input_tokens", 0),
+                output_tokens=api_result.get("usage", {}).get("output_tokens", 0)
+            )
             
         except Exception as e:
             self.logger.error(f"评分处理失败: {e}")
@@ -215,41 +215,41 @@ class BaseModel(ABC):
         treated_json = json.dumps(treated_gis_data, ensure_ascii=False, indent=2)
         
         user_message = f"""
-请对台区治理效果进行美观性评分 (0-100分)。
+            请对台区治理效果进行美观性评分 (0-100分)。
 
-## 治理前数据:
-```json
-{original_json}
-```
+            ## 治理前数据:
+            ```json
+            {original_json}
+            ```
 
-## 治理后数据:
-```json
-{treated_json}
-```
+            ## 治理后数据:
+            ```json
+            {treated_json}
+            ```
 
-请从以下维度评分并返回JSON格式:
-1. layout (布局合理性) - 设备排列是否整齐有序
-2. spacing (设备间距) - 设备间距是否合适
-3. harmony (视觉和谐性) - 整体视觉效果是否和谐
-4. accessibility (可达性) - 设备是否易于维护访问
+            请从以下维度评分并返回JSON格式:
+            1. layout (布局合理性) - 设备排列是否整齐有序
+            2. spacing (设备间距) - 设备间距是否合适
+            3. harmony (视觉和谐性) - 整体视觉效果是否和谐
+            4. accessibility (可达性) - 设备是否易于维护访问
 
-返回格式示例:
-{{
-    "beauty_score": 85.5,
-    "dimension_scores": {{
-        "layout": 88,
-        "spacing": 85,
-        "harmony": 87,
-        "accessibility": 82
-    }},
-    "improvement_analysis": {{
-        "devices_moved": 3,
-        "spacing_improved": true,
-        "layout_optimized": true
-    }},
-    "reasoning": "治理后设备布局更加整齐，间距更加合理..."
-}}
-"""
+            返回格式示例:
+            {{
+                "beauty_score": 85.5,
+                "dimension_scores": {{
+                    "layout": 88,
+                    "spacing": 85,
+                    "harmony": 87,
+                    "accessibility": 82
+                }},
+                "improvement_analysis": {{
+                    "devices_moved": 3,
+                    "spacing_improved": true,
+                    "layout_optimized": true
+                }},
+                "reasoning": "治理后设备布局更加整齐，间距更加合理..."
+            }}
+            """
         
         return [
             {"role": "system", "content": "你是台区美观性评价专家，能客观评估设备布局的美观性和合理性。"},
