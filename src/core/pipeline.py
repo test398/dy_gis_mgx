@@ -10,6 +10,8 @@ from functools import partial
 from typing import List, Optional, Dict, Any
 import logging
 
+from core.data_types import TreatmentResponse
+
 # 导入核心数据类型
 try:
     from .data_types import (
@@ -94,7 +96,7 @@ def process_single_image(
             
             # 5. 调用治理模型
             treatment_start = time.perf_counter()
-            treatment_resp = model.beautify(gis_dict, prompt, validated_input.visual_image_path)
+            treatment_resp: TreatmentResponse = model.beautify(gis_dict, prompt, validated_input.visual_image_path)
             treatment_time = time.perf_counter() - treatment_start
             
             logger.info(f"治理完成，用时: {treatment_time:.2f}s")
