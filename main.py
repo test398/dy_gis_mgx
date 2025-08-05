@@ -15,6 +15,7 @@
 
 import sys
 import os
+from datetime import datetime
 from pathlib import Path
 import argparse
 import logging
@@ -32,13 +33,14 @@ def setup_logging(log_level: str = "INFO") -> None:
     Args:
         log_level: 日志级别 (DEBUG, INFO, WARNING, ERROR)
         """
+    os.makedirs('logs', exist_ok=True)
     logging.basicConfig(
         level=getattr(logging, log_level.upper()),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        format='%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s',
         handlers=[
             logging.StreamHandler(),
             # TODO: 添加文件日志处理器
-            # logging.FileHandler('logs/system.log')
+            logging.FileHandler(filename=f'logs/system_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
         ]
     )
 
@@ -195,29 +197,30 @@ def process_areas(input_path: str, output_dir: str, models: list, config: dict) 
     # 3. 调用core.pipeline.process_batch
     # 4. 保存结果
     
-    # from core.pipeline import process_batch
-    # from core.data_types import BatchInput, ImageInput, GISData
+    from core.pipeline import process_batch
+    from core.data_types import BatchInput, ImageInput, GISData
+    from data.input_loader import load_gis_data_from_json  # 需要实现
     # 
     # # 加载所有数据文件并创建ImageInput列表
-    # inputs = []
-    # for file_path in input_files:
-    #     gis_data = load_gis_data_from_json(file_path)  # 需要实现
-    #     image_input = ImageInput(gis_data=gis_data, input_id=file_path.stem)
-    #     inputs.append(image_input)
+    inputs = []
+    for file_path in input_files:
+        gis_data = load_gis_data_from_json(file_path)  # 需要实现
+        image_input = ImageInput(gis_data=gis_data, input_id=file_path.stem)
+        inputs.append(image_input)
     # 
     # # 创建BatchInput
-    # batch_input = BatchInput(
-    #     inputs=inputs,
-    #     config=config,
-    #     batch_id=f"main_{len(inputs)}files"
-    # )
+    batch_input = BatchInput(
+        inputs=inputs,
+        config=config,
+        batch_id=f"main_{len(inputs)}files"
+    )
     # 
     # # 调用批处理
-    # batch_result = process_batch(
-    #     batch_input, 
-    #     models=models,
-    #     max_workers=config['processing']['max_workers']
-    # )
+    batch_result = process_batch(
+        batch_input, 
+        models=models,
+        max_workers=config['processing']['max_workers']
+    )
     # 
     # # 保存结果到输出目录
     # save_batch_results(batch_result, output_dir)  # 需要实现
@@ -264,4 +267,5 @@ def main() -> None:
         sys.exit(1)
 
 if __name__ == "__main__":
+    sys.argv.append(r"D:\work\dy_gis_mgx\标注数据目录\有对应关系的标注结果数据\0f24d37e-97ba-42b9-986d-5d290cfcb04_zlq.json")
     main()
