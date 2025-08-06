@@ -11,6 +11,9 @@ from .data_types import (
     BatchSummary, GISDataDict, CoordinatesList, DeviceDict
 )
 
+# 导出评分器
+from .evaluation import OverheadLineScorer
+
 # 导出核心处理流程 - 使用简单导入
 def get_core_functions():
     """延迟导入核心功能，避免循环导入"""
