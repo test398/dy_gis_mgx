@@ -1,6 +1,10 @@
+import matplotlib
+matplotlib.use('Agg')
 import json
 import matplotlib.pyplot as plt
 import os
+import logging
+
 
 def compare_device_positions(file1, file2, out_img_path='设备位置对比_auto.png'):
     """
@@ -44,4 +48,4 @@ def compare_device_positions(file1, file2, out_img_path='设备位置对比_auto
     plt.tight_layout()
     plt.savefig(out_img_path, dpi=200, bbox_inches='tight')
     plt.close()
-    print(f"对比图片已保存为 {out_img_path}") 
+    logging.info(f"对比图片已保存为 {out_img_path}") 

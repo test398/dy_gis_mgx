@@ -26,6 +26,8 @@ src_dir = current_dir / 'src'
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
+from src.data.device_position_compare import compare_device_positions
+
 def setup_logging(log_level: str = "INFO") -> None:
     """
     配置日志系统
@@ -225,8 +227,16 @@ def process_areas(input_path: str, output_dir: str, models: list, config: dict) 
     # 
     # # 保存结果到输出目录
     save_batch_results(batch_result, output_dir)
+
+    # === 生成设备位置对比图 ===
+    for file1 in input_files:
+        file2 = os.path.join(output_dir, file1.stem.replace('_zlq', '') + '_zlh.json')
+        if not Path(file2).exists():
+            logging.warning(f"未找到治理后json文件: {file2}")
+            continue
+        out_img_path = os.path.join(output_dir, file1.stem.replace('_zlq', '') + '_result.png')
+        compare_device_positions(file1, file2, out_img_path)
     
-    print("⚠️  台区处理功能待实现")
 
 def main() -> None:
     """

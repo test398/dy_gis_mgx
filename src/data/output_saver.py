@@ -24,7 +24,7 @@ def save_batch_results(batch_result, output_dir):
             ann = {'id': device['id'], 'points': device['points'], 'label': device.get('label') or device.get('type', 'unknown')}
             annotations.append(ann)
         outGISData = {'width': width, 'height': height, 'annotations': annotations}
-        out_path = os.path.join(output_dir, f'{psrId}.json')
+        out_path = os.path.join(output_dir, f'{psrId}_zlh.json')
         with open(out_path, 'w') as f:
             json.dump(outGISData, f)
         logger.info(f"已保存台区 {psrId} 结果到 {out_path}")
