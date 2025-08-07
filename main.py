@@ -224,7 +224,7 @@ def process_areas(input_path: str, output_dir: str, models: list, config: dict) 
     )
     # 
     # # 保存结果到输出目录
-    save_batch_results(batch_result, output_dir)  # 需要实现
+    save_batch_results(batch_result, output_dir)
     
     print("⚠️  台区处理功能待实现")
 
@@ -268,5 +268,9 @@ def main() -> None:
         sys.exit(1)
 
 if __name__ == "__main__":
-    sys.argv.append(r"D:\work\dy_gis_mgx\标注数据目录\有对应关系的标注结果数据\0f24d37e-97ba-42b9-986d-5d290cfcb04_zlq.json")
+    sys.argv = [
+        "main.py",
+        "--output", "D:\\work\\resGIS",
+        "D:\\work\\dy_gis_mgx\\标注数据目录\\有对应关系的标注结果数据\\0f24d37e-97ba-42b9-986d-5d290cfcb04_zlq.json"
+    ]
     main()
