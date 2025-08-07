@@ -85,22 +85,25 @@ class ExperimentTracker:
         self.api_calls: List[APICallRecord] = []
         self.scoring_records: List[ScoringRecord] = []
         self.experiment_start_time = None
-
+        
     def init_experiment(self) -> None:
         """
         初始化WandB实验
-
+        
         Returns:
             None
         """
         import wandb
+        self.experiment_start_time = time.time()
+        
         try:
             # 自动登录wandb
             if not wandb.run:
                 wandb.login(key="1d7931063f483ab522c3a5fbbded1557fb842d6d")
             entity = self.config.entity or "luozhengwei2022-"
+            
+            # 尝试在线模式
             try:
-                # 在线模式
                 self.wandb_run = wandb.init(
                     project=self.config.project_name,
                     name=self.config.experiment_name,
@@ -109,36 +112,56 @@ class ExperimentTracker:
                     notes=self.config.notes,
                     config=asdict(self.config),
                     settings=wandb.Settings(
-                        init_timeout=30  # 更短的超时时间
+                        init_timeout=15  # 更短的超时时间
                     )
                 )
-                self.experiment_start_time = time.time()
-                logger.info(f"WandB实验已初始化: {self.config.experiment_name}")
+                logger.info(f"WandB实验已在线初始化: {self.config.experiment_name}")
+                return
             except Exception as e:
                 logger.warning(f"WandB在线初始化失败({e})，尝试离线模式。")
-                try:
-                    self.wandb_run = wandb.init(
-                        project=self.config.project_name,
-                        name=self.config.experiment_name,
-                        entity=entity,
-                        tags=self.config.tags,
-                        notes=self.config.notes,
-                        config=asdict(self.config),
-                        settings=wandb.Settings(
-                            mode="offline",
-                            init_timeout=10  # 离线模式更短超时
-                        )
+            
+            # 尝试离线模式
+            try:
+                self.wandb_run = wandb.init(
+                    project=self.config.project_name,
+                    name=self.config.experiment_name,
+                    entity=entity,
+                    tags=self.config.tags,
+                    notes=self.config.notes,
+                    config=asdict(self.config),
+                    settings=wandb.Settings(
+                        mode="offline",
+                        init_timeout=5  # 离线模式更短超时
                     )
-                    self.experiment_start_time = time.time()
-                    logger.info(f"WandB实验已离线初始化: {self.config.experiment_name}")
-                except Exception as e2:
-                    logger.error(f"WandB离线模式也初始化失败({e2})，本地将不记录wandb日志。")
-                    self.wandb_run = None
-                    self.experiment_start_time = time.time()
+                )
+                logger.info(f"WandB实验已离线初始化: {self.config.experiment_name}")
+                return
+            except Exception as e2:
+                logger.warning(f"WandB离线模式也初始化失败({e2})，尝试禁用模式。")
+            
+            # 尝试禁用模式
+            try:
+                self.wandb_run = wandb.init(
+                    project=self.config.project_name,
+                    name=self.config.experiment_name,
+                    entity=entity,
+                    tags=self.config.tags,
+                    notes=self.config.notes,
+                    config=asdict(self.config),
+                    settings=wandb.Settings(
+                        mode="disabled",
+                        init_timeout=1
+                    )
+                )
+                logger.info(f"WandB实验已禁用模式初始化: {self.config.experiment_name}")
+                return
+            except Exception as e3:
+                logger.error(f"WandB禁用模式也初始化失败({e3})，本地将不记录wandb日志。")
+                self.wandb_run = None
+                
         except Exception as e:
-            logger.error(f"WandB实验初始化失败: {e}")
+            logger.error(f"WandB实验初始化完全失败: {e}")
             self.wandb_run = None
-            self.experiment_start_time = time.time()
 
     def log_api_call(self,
                      model_name: str,
@@ -311,31 +334,66 @@ class ExperimentTracker:
     def save_experiment_data(self, output_dir: str = "experiment_data") -> None:
         """
         保存实验数据到本地文件
-
+        
         Args:
             output_dir: 输出目录
         """
-        output_path = Path(output_dir)
-        output_path.mkdir(exist_ok=True)
-
-        # 保存API调用记录
-        api_calls_df = pd.DataFrame([asdict(record) for record in self.api_calls])
-        api_calls_df.to_csv(output_path / "api_calls.csv", index=False, encoding='utf-8')
-
-        # 保存评分记录
-        scoring_records_df = pd.DataFrame([asdict(record) for record in self.scoring_records])
-        scoring_records_df.to_csv(output_path / "scoring_records.csv", index=False, encoding='utf-8')
-
-        # 保存实验配置
-        with open(output_path / "experiment_config.json", 'w', encoding='utf-8') as f:
-            json.dump(asdict(self.config), f, ensure_ascii=False, indent=2)
-
-        # 生成对比报告
-        report = self.generate_comparison_report()
-        with open(output_path / "comparison_report.json", 'w', encoding='utf-8') as f:
-            json.dump(report, f, ensure_ascii=False, indent=2)
-
-        logger.info(f"实验数据已保存到: {output_path}")
+        try:
+            output_path = Path(output_dir)
+            output_path.mkdir(exist_ok=True)
+            
+            # 保存API调用记录
+            if self.api_calls:
+                api_calls_df = pd.DataFrame([asdict(record) for record in self.api_calls])
+                api_calls_df.to_csv(output_path / "api_calls.csv", index=False, encoding='utf-8')
+            
+            # 保存评分记录
+            if self.scoring_records:
+                scoring_records_df = pd.DataFrame([asdict(record) for record in self.scoring_records])
+                scoring_records_df.to_csv(output_path / "scoring_records.csv", index=False, encoding='utf-8')
+            
+            # 保存实验配置
+            with open(output_path / "experiment_config.json", 'w', encoding='utf-8') as f:
+                json.dump(asdict(self.config), f, ensure_ascii=False, indent=2)
+            
+            # 生成对比报告
+            report = self.generate_comparison_report()
+            with open(output_path / "comparison_report.json", 'w', encoding='utf-8') as f:
+                json.dump(report, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"实验数据已保存到: {output_path}")
+        except PermissionError as e:
+            logger.error(f"权限错误，无法保存到 {output_dir}: {e}")
+            # 尝试保存到临时目录
+            import tempfile
+            temp_dir = Path(tempfile.gettempdir()) / "wandb_experiment_data"
+            temp_dir.mkdir(exist_ok=True)
+            
+            try:
+                # 保存API调用记录
+                if self.api_calls:
+                    api_calls_df = pd.DataFrame([asdict(record) for record in self.api_calls])
+                    api_calls_df.to_csv(temp_dir / "api_calls.csv", index=False, encoding='utf-8')
+                
+                # 保存评分记录
+                if self.scoring_records:
+                    scoring_records_df = pd.DataFrame([asdict(record) for record in self.scoring_records])
+                    scoring_records_df.to_csv(temp_dir / "scoring_records.csv", index=False, encoding='utf-8')
+                
+                # 保存实验配置
+                with open(temp_dir / "experiment_config.json", 'w', encoding='utf-8') as f:
+                    json.dump(asdict(self.config), f, ensure_ascii=False, indent=2)
+                
+                # 生成对比报告
+                report = self.generate_comparison_report()
+                with open(temp_dir / "comparison_report.json", 'w', encoding='utf-8') as f:
+                    json.dump(report, f, ensure_ascii=False, indent=2)
+                
+                logger.info(f"实验数据已保存到临时目录: {temp_dir}")
+            except Exception as e2:
+                logger.error(f"保存到临时目录也失败: {e2}")
+        except Exception as e:
+            logger.error(f"保存实验数据时出错: {e}")
 
     def finish_experiment(self) -> None:
         """
