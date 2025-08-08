@@ -8,6 +8,7 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 import wandb
+from datetime import datetime
 
 
 @dataclass
@@ -29,6 +30,19 @@ class CostMetrics:
     cost_per_improvement_point: float
     cost_efficiency_ratio: float
     model_cost_comparison: Dict[str, float]
+
+
+@dataclass
+class GISPerformanceMetrics:
+    """GIS性能指标数据类"""
+    beauty_score: float  # 美观性总分 (0-100)
+    improvement_score: float  # 治理提升分数
+    dimension_scores: Dict[str, float]  # 5维度分项分数
+    api_success_rate: float  # API成功率
+    json_parse_success_rate: float  # JSON解析成功率
+    processing_time: float  # 处理时间
+    total_tokens: int  # 总token数
+    total_cost: float  # 总成本
 
 
 def calculate_improvement_metrics(before_scores: List[Dict[str, float]], 
@@ -346,9 +360,11 @@ def generate_metrics_report(improvement_metrics: ImprovementMetrics,
     }
     # 自动上传summary到wandb
     try:
-        wandb.log({"metrics_report": report["summary"]})
-        wandb.summary.update(report["summary"])
+        if wandb.run and hasattr(wandb.run, 'log'):
+            wandb.log({"metrics_report": report["summary"]})
+            wandb.summary.update(report["summary"])
     except Exception:
+        # 在禁用模式下忽略WandB错误
         pass
     return report
 
@@ -390,3 +406,295 @@ def _generate_metrics_recommendations(improvement_metrics: ImprovementMetrics,
             recommendations.append(f"{model_name}的平均评分较低，建议优化模型或提示词")
     
     return recommendations 
+
+
+def calculate_gis_performance_metrics(experiment_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    计算GIS性能指标
+    
+    Args:
+        experiment_results: 实验结果列表
+        
+    Returns:
+        Dict: GIS性能指标统计
+    """
+    if not experiment_results:
+        return {}
+    
+    # 提取各项指标
+    beauty_scores = [result.get('beauty_score', 0) for result in experiment_results]
+    improvement_scores = [result.get('improvement_score', 0) for result in experiment_results]
+    processing_times = [result.get('processing_time', 0) for result in experiment_results]
+    api_success_rates = [result.get('api_success_rate', 1.0) for result in experiment_results]
+    json_parse_success_rates = [result.get('json_parse_success_rate', 1.0) for result in experiment_results]
+    total_tokens = [result.get('total_tokens', 0) for result in experiment_results]
+    total_costs = [result.get('total_cost', 0) for result in experiment_results]
+    
+    # 计算各维度分数统计
+    dimension_stats = {}
+    all_dimensions = set()
+    for result in experiment_results:
+        dimension_scores = result.get('dimension_scores', {})
+        all_dimensions.update(dimension_scores.keys())
+    
+    for dimension in all_dimensions:
+        scores = [result.get('dimension_scores', {}).get(dimension, 0) for result in experiment_results]
+        dimension_stats[dimension] = {
+            "mean": np.mean(scores),
+            "std": np.std(scores),
+            "min": np.min(scores),
+            "max": np.max(scores),
+            "median": np.median(scores)
+        }
+    
+    # 计算统计指标
+    stats = {
+        "beauty_score": {
+            "mean": np.mean(beauty_scores),
+            "std": np.std(beauty_scores),
+            "min": np.min(beauty_scores),
+            "max": np.max(beauty_scores),
+            "median": np.median(beauty_scores)
+        },
+        "improvement_score": {
+            "mean": np.mean(improvement_scores),
+            "std": np.std(improvement_scores),
+            "min": np.min(improvement_scores),
+            "max": np.max(improvement_scores),
+            "median": np.median(improvement_scores)
+        },
+        "processing_time": {
+            "mean": np.mean(processing_times),
+            "std": np.std(processing_times),
+            "min": np.min(processing_times),
+            "max": np.max(processing_times),
+            "median": np.median(processing_times)
+        },
+        "api_success_rate": {
+            "mean": np.mean(api_success_rates),
+            "std": np.std(api_success_rates),
+            "min": np.min(api_success_rates),
+            "max": np.max(api_success_rates),
+            "median": np.median(api_success_rates)
+        },
+        "json_parse_success_rate": {
+            "mean": np.mean(json_parse_success_rates),
+            "std": np.std(json_parse_success_rates),
+            "min": np.min(json_parse_success_rates),
+            "max": np.max(json_parse_success_rates),
+            "median": np.median(json_parse_success_rates)
+        },
+        "total_tokens": {
+            "mean": np.mean(total_tokens),
+            "std": np.std(total_tokens),
+            "min": np.min(total_tokens),
+            "max": np.max(total_tokens),
+            "median": np.median(total_tokens),
+            "sum": np.sum(total_tokens)
+        },
+        "total_cost": {
+            "mean": np.mean(total_costs),
+            "std": np.std(total_costs),
+            "min": np.min(total_costs),
+            "max": np.max(total_costs),
+            "median": np.median(total_costs),
+            "sum": np.sum(total_costs)
+        },
+        "dimension_statistics": dimension_stats
+    }
+    
+    return stats
+
+
+def calculate_setting_comparison_metrics(setting_results: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
+    """
+    计算不同Setting的对比指标
+    
+    Args:
+        setting_results: 各Setting的实验结果 {setting_name: results_list}
+        
+    Returns:
+        Dict: Setting对比指标
+    """
+    if not setting_results:
+        return {}
+    
+    comparison = {
+        "setting_names": list(setting_results.keys()),
+        "beauty_score_comparison": {},
+        "improvement_score_comparison": {},
+        "processing_time_comparison": {},
+        "api_success_rate_comparison": {},
+        "cost_efficiency_comparison": {}
+    }
+    
+    for setting_name, results in setting_results.items():
+        if not results:
+            continue
+        
+        # 计算各指标的平均值
+        beauty_scores = [result.get('beauty_score', 0) for result in results]
+        improvement_scores = [result.get('improvement_score', 0) for result in results]
+        processing_times = [result.get('processing_time', 0) for result in results]
+        api_success_rates = [result.get('api_success_rate', 1.0) for result in results]
+        total_costs = [result.get('total_cost', 0) for result in results]
+        
+        comparison["beauty_score_comparison"][setting_name] = {
+            "mean": np.mean(beauty_scores),
+            "std": np.std(beauty_scores),
+            "count": len(beauty_scores)
+        }
+        
+        comparison["improvement_score_comparison"][setting_name] = {
+            "mean": np.mean(improvement_scores),
+            "std": np.std(improvement_scores),
+            "count": len(improvement_scores)
+        }
+        
+        comparison["processing_time_comparison"][setting_name] = {
+            "mean": np.mean(processing_times),
+            "std": np.std(processing_times),
+            "count": len(processing_times)
+        }
+        
+        comparison["api_success_rate_comparison"][setting_name] = {
+            "mean": np.mean(api_success_rates),
+            "std": np.std(api_success_rates),
+            "count": len(api_success_rates)
+        }
+        
+        # 计算成本效率（每分成本）
+        avg_beauty_score = np.mean(beauty_scores)
+        avg_cost = np.mean(total_costs)
+        cost_efficiency = avg_cost / avg_beauty_score if avg_beauty_score > 0 else float('inf')
+        
+        comparison["cost_efficiency_comparison"][setting_name] = {
+            "mean_cost": avg_cost,
+            "mean_beauty_score": avg_beauty_score,
+            "cost_efficiency": cost_efficiency,
+            "count": len(total_costs)
+        }
+    
+    return comparison
+
+
+def calculate_gis_improvement_metrics(before_results: List[Dict[str, Any]], 
+                                    after_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    计算GIS改善指标
+    
+    Args:
+        before_results: 治理前实验结果
+        after_results: 治理后实验结果
+        
+    Returns:
+        Dict: GIS改善指标
+    """
+    if len(before_results) != len(after_results):
+        raise ValueError("治理前后结果数量不匹配")
+    
+    # 计算美观性评分改善
+    before_beauty_scores = [result.get('beauty_score', 0) for result in before_results]
+    after_beauty_scores = [result.get('beauty_score', 0) for result in after_results]
+    
+    mean_before_beauty = np.mean(before_beauty_scores)
+    mean_after_beauty = np.mean(after_beauty_scores)
+    beauty_improvement = mean_after_beauty - mean_before_beauty
+    beauty_improvement_rate = ((mean_after_beauty - mean_before_beauty) / mean_before_beauty * 100) if mean_before_beauty != 0 else 0
+    
+    # 计算治理提升分数改善
+    before_improvement_scores = [result.get('improvement_score', 0) for result in before_results]
+    after_improvement_scores = [result.get('improvement_score', 0) for result in after_results]
+    
+    mean_before_improvement = np.mean(before_improvement_scores)
+    mean_after_improvement = np.mean(after_improvement_scores)
+    improvement_score_change = mean_after_improvement - mean_before_improvement
+    
+    # 计算各维度改善
+    dimension_improvements = {}
+    all_dimensions = set()
+    for result in before_results + after_results:
+        dimension_scores = result.get('dimension_scores', {})
+        all_dimensions.update(dimension_scores.keys())
+    
+    for dimension in all_dimensions:
+        before_dim_scores = [result.get('dimension_scores', {}).get(dimension, 0) for result in before_results]
+        after_dim_scores = [result.get('dimension_scores', {}).get(dimension, 0) for result in after_results]
+        mean_before_dim = np.mean(before_dim_scores)
+        mean_after_dim = np.mean(after_dim_scores)
+        dimension_improvements[dimension] = mean_after_dim - mean_before_dim
+    
+    return {
+        "beauty_score_improvement": beauty_improvement,
+        "beauty_score_improvement_rate": beauty_improvement_rate,
+        "improvement_score_change": improvement_score_change,
+        "dimension_improvements": dimension_improvements,
+        "total_samples": len(before_results)
+    }
+
+
+def generate_gis_metrics_report(performance_metrics: Dict[str, Any],
+                               setting_comparison: Dict[str, Any],
+                               improvement_metrics: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    生成GIS指标报告
+    
+    Args:
+        performance_metrics: 性能指标
+        setting_comparison: Setting对比指标
+        improvement_metrics: 改善指标（可选）
+        
+    Returns:
+        Dict: GIS指标报告
+    """
+    report = {
+        "report_type": "GIS实验指标报告",
+        "timestamp": datetime.now().isoformat(),
+        "performance_metrics": performance_metrics,
+        "setting_comparison": setting_comparison,
+        "recommendations": []
+    }
+    
+    if improvement_metrics:
+        report["improvement_metrics"] = improvement_metrics
+    
+    # 生成建议
+    recommendations = []
+    
+    # 基于性能指标的建议
+    if performance_metrics:
+        beauty_score_mean = performance_metrics.get("beauty_score", {}).get("mean", 0)
+        if beauty_score_mean < 70:
+            recommendations.append(f"平均美观性评分较低({beauty_score_mean:.1f})，建议优化算法或数据质量")
+        
+        api_success_rate_mean = performance_metrics.get("api_success_rate", {}).get("mean", 1.0)
+        if api_success_rate_mean < 0.9:
+            recommendations.append(f"API成功率较低({api_success_rate_mean:.1%})，建议检查API稳定性")
+        
+        processing_time_mean = performance_metrics.get("processing_time", {}).get("mean", 0)
+        if processing_time_mean > 30:
+            recommendations.append(f"平均处理时间较长({processing_time_mean:.1f}s)，建议优化性能")
+    
+    # 基于Setting对比的建议
+    if setting_comparison:
+        beauty_comparison = setting_comparison.get("beauty_score_comparison", {})
+        if beauty_comparison:
+            best_setting = max(beauty_comparison.items(), key=lambda x: x[1]["mean"])
+            recommendations.append(f"推荐使用 {best_setting[0]}，平均美观性评分最高({best_setting[1]['mean']:.1f})")
+    
+    report["recommendations"] = recommendations
+    
+    # 记录到WandB（仅在非禁用模式下）
+    try:
+        if wandb.run and hasattr(wandb.run, 'log'):
+            wandb.log({
+                "gis_metrics_report": report,
+                "beauty_score_mean": performance_metrics.get("beauty_score", {}).get("mean", 0),
+                "api_success_rate_mean": performance_metrics.get("api_success_rate", {}).get("mean", 1.0),
+                "processing_time_mean": performance_metrics.get("processing_time", {}).get("mean", 0)
+            })
+    except Exception as e:
+        # 在禁用模式下忽略WandB错误
+        pass
+    
+    return report 

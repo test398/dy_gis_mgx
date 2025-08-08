@@ -487,6 +487,153 @@ def main():
         runner.finish_experiment()
 
 
+def run_gis_experiment_demo():
+    """
+    运行GIS实验追踪演示
+    """
+    logger.info("开始GIS实验追踪演示")
+    
+    # 导入GIS实验追踪器
+    from gis_experiment_tracker import create_gis_experiment_tracker
+    from metrics import calculate_gis_performance_metrics, calculate_setting_comparison_metrics
+    
+    # 定义Setting配置
+    settings = [
+        {
+            "setting_name": "Setting_A",
+            "data_version": "标注数据v1",
+            "evaluation_criteria": "5项评分标准"
+        },
+        {
+            "setting_name": "Setting_B",
+            "data_version": "标注数据v2",
+            "evaluation_criteria": "改进评价标准"
+        },
+        {
+            "setting_name": "Setting_C",
+            "data_version": "扩展数据集",
+            "evaluation_criteria": "完整评价体系"
+        }
+    ]
+    
+    trackers = {}
+    setting_results = {}
+    
+    # 运行每个Setting的实验
+    for setting in settings:
+        logger.info(f"运行 {setting['setting_name']} 实验")
+        
+        # 创建GIS实验追踪器
+        tracker = create_gis_experiment_tracker(
+            experiment_id=f"gis_exp_{setting['setting_name']}_{int(time.time())}",
+            setting_name=setting["setting_name"],
+            data_version=setting["data_version"],
+            evaluation_criteria=setting["evaluation_criteria"],
+            model_name="qwen-vl-max",
+            algorithm_version="v2.1",
+            prompt_version="optimized_v3"
+        )
+        
+        trackers[setting["setting_name"]] = tracker
+        setting_results[setting["setting_name"]] = []
+        
+        # 运行实验样本
+        for i in range(3):
+            logger.info(f"处理 {setting['setting_name']} 样本 {i+1}/3")
+            
+            # 模拟API调用
+            api_result = {
+                "success": True,
+                "beauty_score": 70 + i * 5 + (hash(setting["setting_name"]) % 10),
+                "improvement_score": 10 + i * 2,
+                "dimension_scores": {
+                    "overhead_lines": 15 + i,
+                    "cable_lines": 12 + i,
+                    "branch_boxes": 15 + i,
+                    "access_points": 12 + i,
+                    "meter_boxes": 12 + i
+                },
+                "tokens_used": 800 + i * 100,
+                "cost": 0.05 + i * 0.02
+            }
+            
+            # 记录API调用
+            tracker.log_api_call(
+                model_name="qwen-vl-max",
+                input_data={"sample_id": f"{setting['setting_name']}_sample_{i+1}"},
+                output=api_result,
+                metrics={
+                    "response_time": 1.0 + i * 0.2,
+                    "success": True,
+                    "error_message": None
+                },
+                cost=api_result["cost"],
+                tokens_used=api_result["tokens_used"]
+            )
+            
+            # 记录实验结果
+            tracker.log_experiment_result(
+                beauty_score=api_result["beauty_score"],
+                improvement_score=api_result["improvement_score"],
+                dimension_scores=api_result["dimension_scores"],
+                api_success_rate=1.0,
+                json_parse_success_rate=1.0,
+                processing_time=1.0 + i * 0.2,
+                total_tokens=api_result["tokens_used"],
+                total_cost=api_result["cost"],
+                is_best_attempt=(api_result["beauty_score"] > 80)
+            )
+            
+            # 保存结果
+            setting_results[setting["setting_name"]].append({
+                "beauty_score": api_result["beauty_score"],
+                "improvement_score": api_result["improvement_score"],
+                "processing_time": 1.0 + i * 0.2,
+                "api_success_rate": 1.0,
+                "total_cost": api_result["cost"]
+            })
+    
+    # 计算Setting对比指标
+    logger.info("计算Setting对比指标")
+    comparison_metrics = calculate_setting_comparison_metrics(setting_results)
+    
+    # 生成性能指标报告
+    all_results = []
+    for results in setting_results.values():
+        all_results.extend(results)
+    
+    performance_metrics = calculate_gis_performance_metrics(all_results)
+    
+    # 打印结果摘要
+    logger.info("\n=== GIS实验结果摘要 ===")
+    for setting_name, results in setting_results.items():
+        avg_beauty_score = sum(r["beauty_score"] for r in results) / len(results)
+        avg_improvement_score = sum(r["improvement_score"] for r in results) / len(results)
+        logger.info(f"{setting_name}:")
+        logger.info(f"  平均美观性评分: {avg_beauty_score:.1f}")
+        logger.info(f"  平均治理提升分数: {avg_improvement_score:.1f}")
+        logger.info("")
+    
+    # 保存实验数据
+    for setting_name, tracker in trackers.items():
+        tracker.save_experiment_data("gis_experiment_results")
+    
+    # 完成所有实验
+    for tracker in trackers.values():
+        tracker.finish_experiment()
+    
+    logger.info("GIS实验追踪演示完成")
+    return {
+        "setting_results": setting_results,
+        "comparison_metrics": comparison_metrics,
+        "performance_metrics": performance_metrics
+    }
+
+
 if __name__ == "__main__":
     weave.init('quickstart_play')
-    main() 
+    # 运行原有演示
+    main()
+    
+    # 运行GIS实验追踪演示
+    run_gis_experiment_demo() 
