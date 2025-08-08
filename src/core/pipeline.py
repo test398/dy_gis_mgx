@@ -7,8 +7,9 @@
 import time
 import multiprocessing as mp
 from functools import partial
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Callable, Set
 import logging
+import gc
 
 from core.data_types import EvaluationResponse, TreatmentResponse
 
@@ -166,6 +167,8 @@ def process_batch(
     models: List[str] = None,
     max_workers: int = 4,
     enable_wandb: bool = True,
+    on_progress: Optional[Callable[[int, int, str], None]] = None,
+    skip_ids: Optional[Set[str]] = None,
     **kwargs
 ) -> BatchResult:
     """
@@ -176,6 +179,8 @@ def process_batch(
         models: 使用的模型列表
         max_workers: 最大并行进程数
         enable_wandb: 是否启用WandB追踪
+        on_progress: 进度回调 (done, total, current_id)
+        skip_ids: 可选，跳过这些input_id
         **kwargs: 其他配置参数
     
     Returns:
@@ -190,8 +195,16 @@ def process_batch(
     """
     if models is None:
         models = ['qwen']
+    if skip_ids is None:
+        skip_ids = set()
     
-    logger.info(f"开始批量处理，图片数量: {batch_input.get_total_images()}, 模型: {models}, 并行数: {max_workers}")
+    # 过滤需处理的输入
+    pending_inputs = [inp for inp in batch_input.inputs if inp.input_id not in skip_ids]
+    skipped = len(batch_input.inputs) - len(pending_inputs)
+    if skipped > 0:
+        logger.info(f"跳过已处理: {skipped} 项，待处理: {len(pending_inputs)}")
+    
+    logger.info(f"开始批量处理，图片数量: {len(pending_inputs)}, 模型: {models}, 并行数: {max_workers}")
     
     # 1. 初始化WandB（如果启用）
     wandb_run_id = None
@@ -203,15 +216,16 @@ def process_batch(
     
     # 2. 准备任务参数
     all_results = []
+    total = len(pending_inputs)
     
     try:
         # 3. 并行处理
-        if max_workers > 1 and len(batch_input.inputs) > 1:
+        if max_workers > 1 and total > 1:
             logger.info("使用多进程并行处理")
-            all_results = _process_batch_parallel(batch_input.inputs, models, max_workers, **kwargs)
+            all_results = _process_batch_parallel(pending_inputs, models, max_workers, on_progress=on_progress, **kwargs)
         else:
             logger.info("使用单进程顺序处理")
-            all_results = _process_batch_sequential(batch_input.inputs, models, **kwargs)
+            all_results = _process_batch_sequential(pending_inputs, models, on_progress=on_progress, **kwargs)
         
         # 4. 记录结果到WandB
         if enable_wandb and wandb_run_id:
@@ -236,6 +250,9 @@ def process_batch(
         # 清理WandB
         if enable_wandb and wandb_run_id:
             _finish_wandb_tracking()
+        # 轻量内存回收
+        del pending_inputs
+        gc.collect()
 
 
 def _preprocess_input(image_input: ImageInput) -> ImageInput:
@@ -300,6 +317,7 @@ def _process_batch_parallel(
     inputs: List[ImageInput], 
     models: List[str], 
     max_workers: int,
+    on_progress: Optional[Callable[[int, int, str], None]] = None,
     **kwargs
 ) -> List[TreatmentResult]:
     """并行批量处理"""
@@ -312,7 +330,15 @@ def _process_batch_parallel(
     with mp.Pool(processes=max_workers) as pool:
         # 使用partial来传递固定参数
         process_func = partial(_process_single_task)
-        results_nested = pool.map(process_func, tasks)
+        results_nested = []
+        total = len(tasks)
+        for idx, result_list in enumerate(pool.imap(process_func, tasks), start=1):
+            results_nested.append(result_list)
+            if on_progress:
+                try:
+                    on_progress(idx, total, tasks[idx-1][0].input_id)
+                except Exception:
+                    pass
     
     # 展平结果列表
     all_results = []
@@ -325,18 +351,26 @@ def _process_batch_parallel(
 def _process_batch_sequential(
     inputs: List[ImageInput], 
     models: List[str],
+    on_progress: Optional[Callable[[int, int, str], None]] = None,
     **kwargs
 ) -> List[TreatmentResult]:
     """顺序批量处理"""
     all_results = []
     
+    total = len(inputs)
     for i, image_input in enumerate(inputs):
-        logger.info(f"处理图片 {i+1}/{len(inputs)}: {image_input.input_id}")
+        logger.info(f"处理图片 {i+1}/{total}: {image_input.input_id}")
         try:
             results = process_single_image(image_input, models, **kwargs)
             all_results.extend(results)
         except Exception as e:
             logger.error(f"处理图片 {image_input.input_id} 失败: {e}")
+        finally:
+            if on_progress:
+                try:
+                    on_progress(i+1, total, image_input.input_id)
+                except Exception:
+                    pass
     
     return all_results
 
