@@ -180,7 +180,7 @@ def process_areas(input_path: str, output_dir: str, models: list, config: dict) 
         input_files = [input_path_obj]
     elif input_path_obj.is_dir():
         # 批量处理 (扫描目录中的所有JSON文件)
-        input_files = list(input_path_obj.glob("*.json"))
+        input_files = list(input_path_obj.glob("*.json"))[:20]  # TODO 测试批量运行前五个文件
         print(f"🎯 批量处理台区目录: {input_path}")
         print(f"📋 发现 {len(input_files)} 个数据文件")
     else:
@@ -201,13 +201,50 @@ def process_areas(input_path: str, output_dir: str, models: list, config: dict) 
     
     from core.pipeline import process_batch
     from core.data_types import BatchInput, ImageInput, GISData
-    from data.input_loader import load_gis_data_from_json  # 需要实现
-    from data import save_batch_results  # 需要实现
+    from data.input_loader import load_gis_data_from_json
+    from data.output_saver import save_batch_results
     # 
     # # 加载所有数据文件并创建ImageInput列表
+    # 仅选择未治理文件：优先 _zlq.json，其次无后缀，排除 _zlh.json
+    def _base_id(p):
+        name = p.stem
+        return name.replace('_zlq', '').replace('_zlh', '')
+
+    selected_map = {}
+    for p in input_files:
+        if p.name.endswith('_zlh.json'):
+            continue  # 排除已治理文件，避免重复
+        b = _base_id(p)
+        # 如果已有候选且不是_zlq，优先用_zlq替换
+        if b in selected_map:
+            # 现有候选是否为_zlq
+            if not selected_map[b].name.endswith('_zlq.json') and p.name.endswith('_zlq.json'):
+                selected_map[b] = p
+        else:
+            selected_map[b] = p
+
+    selected_files = list(selected_map.values())
+    logging.info(f"筛选后待处理文件数: {len(selected_files)}（排除_zlh已治理文件）")
+
+    # 基于输出目录现状做二次筛选：若同时存在治理后JSON与对比图，则彻底跳过
+    files_to_process = []
+    skipped_by_existing = []
+    skipped_by_existing_ids = []
+    for file_path in selected_files:
+        base_id = file_path.stem.replace('_zlq', '').replace('_zlh', '')
+        treated_json = os.path.join(output_dir, f"{base_id}_zlh.json")
+        compare_png = os.path.join(output_dir, f"{base_id}_result.png")
+        if os.path.exists(treated_json) and os.path.exists(compare_png):
+            skipped_by_existing.append(file_path)
+            skipped_by_existing_ids.append(base_id)
+        else:
+            files_to_process.append(file_path)
+
+    # 延后打印“已跳过”明细到批处理开始之后，以便pipeline日志先出现
+
     inputs = []
-    for file_path in input_files:
-        gis_data = load_gis_data_from_json(file_path)  # 需要实现
+    for file_path in files_to_process:
+        gis_data = load_gis_data_from_json(file_path)
         image_input = ImageInput(gis_data=gis_data, input_id=file_path.stem)
         inputs.append(image_input)
     # 
@@ -219,24 +256,66 @@ def process_areas(input_path: str, output_dir: str, models: list, config: dict) 
     )
     # 
     # # 调用批处理
-    batch_result = process_batch(
-        batch_input, 
-        models=models,
-        max_workers=config['processing']['max_workers']
-    )
-    # 
-    # # 保存结果到输出目录
-    save_batch_results(batch_result, output_dir)
+    if inputs:
+        batch_result = process_batch(
+            batch_input, 
+            models=models,
+            max_workers=config['processing']['max_workers']
+        )
+        # 保存结果到输出目录
+        save_batch_results(batch_result, output_dir)
+    else:
+        logging.info("本次无需治理：全部台区均已存在治理结果与对比图")
 
+    # 现在输出已跳过的台区明细与统计（保证出现在pipeline开始日志之后）
+    if skipped_by_existing_ids:
+        for base_id in skipped_by_existing_ids:
+            logging.info(f"检测到已治理且已有对比图，跳过: {base_id}")
+        logging.info(f"已跳过 {len(skipped_by_existing_ids)} 个台区（均已存在JSON与对比图）")
+ 
     # === 生成设备位置对比图 ===
-    for file1 in input_files:
-        file2 = os.path.join(output_dir, file1.stem.replace('_zlq', '') + '_zlh.json')
+    # 规则：只要有治理后JSON但缺少对比图，就补齐对比图；否则跳过
+    for file1 in selected_files:
+        base_id = file1.stem.replace('_zlq', '').replace('_zlh', '')
+        file2 = os.path.join(output_dir, base_id + '_zlh.json')
+        out_img_path = os.path.join(output_dir, base_id + '_result.png')
         if not Path(file2).exists():
-            logging.warning(f"未找到治理后json文件: {file2}")
+            logging.warning(f"未找到治理后json文件，无法生成对比图: {file2}")
             continue
-        out_img_path = os.path.join(output_dir, file1.stem.replace('_zlq', '') + '_result.png')
+        if Path(out_img_path).exists():
+            logging.info(f"对比图已存在，跳过生成: {out_img_path}")
+            continue
+        # 读取治理结果，若无设备则跳过生成对比图
+        try:
+            import json
+            with open(file2, 'r', encoding='utf-8') as f:
+                treated = json.load(f)
+            anns = treated.get('annotations', []) or []
+            if len(anns) == 0:
+                logging.warning(f"治理后无设备（annotations空），跳过对比图: {file2}")
+                continue
+        except Exception as e:
+            logging.warning(f"读取治理后结果失败，跳过对比图: {file2}，原因: {e}")
+            continue
         compare_device_positions(file1, file2, out_img_path)
-    
+
+    # === 最终汇总日志（放在流程最末，避免被后续日志淹没） ===
+    try:
+        if 'batch_result' in locals() and batch_result and getattr(batch_result, 'summary', None):
+            logging.info("================ 最终汇总（流程结束） ================")
+            logging.info(f"批量处理完成，总成本: ${batch_result.summary.total_cost:.4f}")
+            logging.info(f"成功率: {batch_result.summary.success_rate:.1f}%")
+            run_id = getattr(batch_result, 'wandb_run_id', None)
+            if run_id:
+                logging.info(f"WandB运行ID: {run_id}")
+            logging.info("=================================================")
+        else:
+            logging.info("================ 最终汇总（流程结束） ================")
+            logging.info("本次未执行治理或无批量汇总可用")
+            logging.info("=================================================")
+    except Exception:
+        pass
+ 
 
 def main() -> None:
     """
@@ -281,6 +360,6 @@ if __name__ == "__main__":
     sys.argv = [
         "main.py",
         "--output", "D:\\work\\resGIS",
-        "D:\\work\\dy_gis_mgx\\标注数据目录\\有对应关系的标注结果数据\\0f24d37e-97ba-42b9-986d-5d290cfcb04_zlq.json"
+        "D:\\work\\dy_gis_mgx\\标注数据目录\\有对应关系的标注结果数据"
     ]
     main()

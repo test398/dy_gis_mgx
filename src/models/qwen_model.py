@@ -59,7 +59,7 @@ class QwenModel(BaseModel):
                     "messages": messages
                 },
                 "parameters": {
-                    "max_tokens": kwargs.get('max_tokens', 4000),
+                    "max_tokens": kwargs.get('max_tokens', 8000),
                     "temperature": kwargs.get('temperature', 0.3),
                     "top_p": kwargs.get('top_p', 0.8)
                 }
@@ -163,88 +163,127 @@ class QwenModel(BaseModel):
         """
         解析千问的治理响应
         
-        千问的响应通常包含JSON数组格式的设备坐标信息
-        
-        Args:
-            response: 千问模型的原始响应
-            
-        Returns:
-            dict: 解析后的GIS数据
+        千问的响应通常包含JSON数组或包含devices字段的对象；也可能被```json 包裹，或末尾缺少收尾括号。
         """
         try:
+            import re
             self.logger.debug("开始解析千问治理响应")
-            
-            # 千问的响应格式通常是：
-            # [
-            #   {"id": "TFvUrGF_P1", "points": [[100, 200], [120, 200], ...], "label": "表箱"},
-            #   {"id": "TFvUrGF_P2", "points": [[300, 400], [320, 400], ...], "label": "电缆头"},
-            #   ...
-            # ]
-            
-            # 尝试提取JSON数组部分
-            if not isinstance(response, str):
-                devices_data = json.loads(response[0]['text'][7:-3])
+
+            def _to_text(resp) -> str:
+                if isinstance(resp, str):
+                    return resp
+                # 常见：[{"text": "```json...```"}]
+                try:
+                    if isinstance(resp, list):
+                        parts = []
+                        for item in resp:
+                            if isinstance(item, dict) and 'text' in item and isinstance(item['text'], str):
+                                parts.append(item['text'])
+                        if parts:
+                            return "".join(parts)
+                except Exception:
+                    pass
+                return str(resp)
+
+            raw_text = _to_text(response)
+
+            def _json_fix_and_load(s: str):
+                # 去除结尾多余逗号
+                s2 = re.sub(r",\s*([}\]])", r"\1", s)
+                # 尝试直接解析
+                try:
+                    return json.loads(s2)
+                except Exception:
+                    # 追加缺失的收尾括号
+                    need_brace = s2.count('{') - s2.count('}')
+                    need_bracket = s2.count('[') - s2.count(']')
+                    if need_brace > 0 or need_bracket > 0:
+                        s3 = s2 + ('}' * max(0, need_brace)) + (']' * max(0, need_bracket))
+                        return json.loads(s3)
+                    raise
+
+            def _extract_any_json(text: str):
+                t = text.replace('\u200b', '').replace('\ufeff', '')
+                # 去掉代码围栏标记，但保留内容
+                t = t.replace('```json', '```').replace('```JSON', '```')
+                # 优先对象，再尝试数组
+                i_obj, j_obj = t.find('{'), t.rfind('}')
+                if i_obj != -1 and j_obj != -1 and j_obj > i_obj:
+                    candidate = t[i_obj:j_obj+1]
+                    try:
+                        return _json_fix_and_load(candidate)
+                    except Exception:
+                        pass
+                i_arr, j_arr = t.find('['), t.rfind(']')
+                if i_arr != -1 and j_arr != -1 and j_arr > i_arr:
+                    candidate = t[i_arr:j_arr+1]
+                    return _json_fix_and_load(candidate)
+                # 代码块内再试一次
+                m = re.search(r"```+\s*(?:json|JSON)?\s*(.*?)```", t, flags=re.S)
+                if m:
+                    inner = m.group(1)
+                    # 去除可能的前缀/后缀说明
+                    inner = inner.strip()
+                    # 再递归一次
+                    return _extract_any_json(inner)
+                return None
+
+            parsed = _extract_any_json(raw_text)
+            if parsed is None:
+                raise ValueError("响应中未找到有效的JSON片段")
+
+            # 统一为设备列表
+            if isinstance(parsed, dict):
+                devices_list = parsed.get('devices') or parsed.get('annotations') or []
+            elif isinstance(parsed, list):
+                devices_list = parsed
             else:
-                json_start = response.find('[')
-                json_end = response.rfind(']') + 1
-                
-                if json_start != -1 and json_end != -1:
-                    json_str = response[json_start:json_end]
-                    devices_data = json.loads(json_str)
-                else:
-                    # 如果没有找到JSON数组，尝试查找JSON对象
-                    json_start = response.find('{')
-                    json_end = response.rfind('}') + 1
-                    if json_start != -1 and json_end != -1:
-                        json_str = response[json_start:json_end]
-                        single_device = json.loads(json_str)
-                        devices_data = [single_device] if isinstance(single_device, dict) else []
-                    else:
-                        raise ValueError("响应中未找到有效的JSON格式")
-            
+                devices_list = []
+
             # 转换为标准的GIS数据格式
             processed_devices = []
-            for device in devices_data['devices']:
-                if isinstance(device, dict) and 'id' in device and 'points' in device:
+            for device in devices_list:
+                if isinstance(device, dict) and 'points' in device:
                     # 计算设备中心点作为x, y坐标
-                    points = device['points']
-                    if points and len(points) > 0:
-                        # 计算多边形中心点
-                        x_coords = [p[0] for p in points if len(p) >= 2]
-                        y_coords = [p[1] for p in points if len(p) >= 2]
-                        
+                    points = device.get('points') or []
+                    if points:
+                        x_coords = [p[0] for p in points if isinstance(p, (list, tuple)) and len(p) >= 2]
+                        y_coords = [p[1] for p in points if isinstance(p, (list, tuple)) and len(p) >= 2]
                         if x_coords and y_coords:
                             center_x = sum(x_coords) / len(x_coords)
                             center_y = sum(y_coords) / len(y_coords)
-                            
                             processed_devices.append({
-                                'id': device['id'],
+                                'id': device.get('id') or f"dev_{len(processed_devices)}",
                                 'x': center_x,
                                 'y': center_y,
                                 'type': device.get('label', 'unknown'),
-                                'points': points,  # 保留原始多边形坐标
-                                'original_data': device  # 保留原始数据
+                                'points': points,
+                                'original_data': device
                             })
-            
+
             self.logger.info(f"成功解析 {len(processed_devices)} 个设备")
-            
-            # 创建GIS数据对象
+
             return GISData(
                 devices=processed_devices,
-                buildings=[],  # 千问响应中不包含建筑物信息
-                roads=[],      # 千问响应中不包含道路信息
-                rivers=[],     # 千问响应中不包含河流信息
-                boundaries={}, # 千问响应中不包含边界信息
+                buildings=[],
+                roads=[],
+                rivers=[],
+                boundaries={},
                 metadata={
                     'source': 'qwen_treatment',
                     'model': self.model_name,
                     'device_count': len(processed_devices)
                 }
             )
-            
+
         except Exception as e:
+            # 安全打印原始响应摘要
+            try:
+                raw_preview = _to_text(response)[:500]
+            except Exception:
+                raw_preview = str(response)[:500]
             self.logger.error(f"解析千问治理响应失败: {e}")
-            self.logger.error(f"原始响应: {response[:500]}...")
+            self.logger.error(f"原始响应: {raw_preview}...")
             raise ValueError(f"无法解析千问治理结果: {str(e)}")
     
     def _parse_evaluation_response(self, response: str) -> Dict[str, Any]:
