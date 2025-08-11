@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import Dict, Any, List, Tuple
 import math
 
+from src.core.base_scorer import BaseScorer
 
-class AccessPointScorer:
+
+class AccessPointScorer(BaseScorer):
     """
     接入点评分器（20分）
     - 位置（12分）
@@ -138,6 +140,10 @@ class AccessPointScorer:
 
     # ----------------- 提取器/工具 -----------------
     def _extract_access_points(self, devices: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """提取接入点设备
+        
+        根据设备类型和标签提取接入点设备
+        """
         results = []
         for d in devices:
             t = str(d.get('type', '')).lower()
@@ -147,83 +153,4 @@ class AccessPointScorer:
                     results.append(d)
         return results
 
-    def _extract_cables(self, devices: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        results = []
-        for d in devices:
-            pts = d.get('points') or []
-            t = str(d.get('type', '')).lower()
-            label = (d.get('label') or d.get('name') or '').lower()
-            if (any(k in t for k in ['cable', 'segment']) or any(k in label for k in ['电缆', '线路'])) and len(pts) >= 2:
-                results.append(d)
-        return results
-
-    @staticmethod
-    def _distance(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
-        return math.hypot(p1[0] - p2[0], p1[1] - p2[1])
-
-    def _distance_point_to_segment(self, p: Tuple[float, float], a: Tuple[float, float], b: Tuple[float, float]) -> float:
-        ax, ay = a
-        bx, by = b
-        px, py = p
-        abx, aby = bx - ax, by - ay
-        apx, apy = px - ax, py - ay
-        denom = abx * abx + aby * aby
-        if denom == 0:
-            return self._distance(p, a)
-        t = max(0.0, min(1.0, (apx * abx + apy * aby) / denom))
-        cx, cy = ax + t * abx, ay + t * aby
-        return self._distance(p, (cx, cy))
-
-    def _distance_point_to_polyline(self, p: Tuple[float, float], line: List[List[float]]) -> float:
-        best = 1e9
-        for i in range(len(line) - 1):
-            d = self._distance_point_to_segment(p, tuple(line[i]), tuple(line[i + 1]))
-            best = min(best, d)
-        return best
-
-    def _distance_point_to_polygon_edge(self, p: Tuple[float, float], poly: List[List[float]]) -> float:
-        best = 1e9
-        for i in range(len(poly)):
-            a = tuple(poly[i])
-            b = tuple(poly[(i + 1) % len(poly)])
-            d = self._distance_point_to_segment(p, a, b)
-            best = min(best, d)
-        return best
-
-    @staticmethod
-    def _point_in_polygon(p: Tuple[float, float], poly: List[Tuple[float, float]]) -> bool:
-        x, y = p
-        inside = False
-        n = len(poly)
-        for i in range(n):
-            x1, y1 = poly[i]
-            x2, y2 = poly[(i + 1) % n]
-            cond = ((y1 > y) != (y2 > y)) and (x < (x2 - x1) * (y - y1) / (y2 - y1 + 1e-9) + x1)
-            if cond:
-                inside = not inside
-        return inside
-
-    @staticmethod
-    def _angle(a: List[float], b: List[float], c: List[float]) -> float:
-        bax = a[0] - b[0]
-        bay = a[1] - b[1]
-        bcx = c[0] - b[0]
-        bcy = c[1] - b[1]
-        dot = bax * bcx + bay * bcy
-        na = math.hypot(bax, bay)
-        nb = math.hypot(bcx, bcy)
-        if na * nb == 0:
-            return 180.0
-        cosv = max(-1.0, min(1.0, dot / (na * nb)))
-        return math.degrees(math.acos(cosv))
-
-    @staticmethod
-    def _level_from_score(score: float, full: float) -> str:
-        ratio = score / max(full, 1e-6)
-        if ratio >= 0.95:
-            return '优秀'
-        if ratio >= 0.75:
-            return '良好'
-        if ratio >= 0.5:
-            return '一般'
-        return '较差' 
+    # 这些方法已移至基类

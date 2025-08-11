@@ -127,7 +127,7 @@ class OverheadLineScorer:
         else:
             score = 4.0
             level = '较差'
-
+        
         return {
             'score': score,
             'level': level,
@@ -196,7 +196,7 @@ class OverheadLineScorer:
         else:
             score = 3.0
             level = '较差'
-
+        
         return {
             'score': score,
             'level': level,
