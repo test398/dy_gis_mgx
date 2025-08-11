@@ -11,8 +11,12 @@ from .data_types import (
     BatchSummary, GISDataDict, CoordinatesList, DeviceDict
 )
 
-# 导出评分器
-from .evaluation import OverheadLineScorer
+# 导出评分器（阶段1 + 阶段4）
+from .overhead_line_scorer import OverheadLineScorer
+from .cable_line_scorer import CableLineScorer
+from .branch_box_scorer import BranchBoxScorer
+from .access_point_scorer import AccessPointScorer
+from .meter_box_scorer import MeterBoxScorer
 
 # 导出核心处理流程 - 使用简单导入
 def get_core_functions():
