@@ -4,6 +4,10 @@
 包含主处理流程、美化治理引擎、评分引擎等核心功能
 """
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # 导出核心数据类型
 from .data_types import (
     GISData, ImageInput, TreatmentResult, BatchInput, BatchResult,
@@ -27,5 +31,5 @@ def get_core_functions():
         from . import evaluation
         return pipeline, beautification, evaluation
     except ImportError as e:
-        print(f"Warning: Could not import core functions: {e}")
+        logger.warning(f"Could not import core functions: {e}")
         return None, None, None

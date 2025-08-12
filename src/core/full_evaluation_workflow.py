@@ -7,7 +7,6 @@ from src.core.evaluation import calculate_beauty_score
 from src.data.device_position_compare import compare_device_positions
 from src.core.data_types import BatchInput, ImageInput
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def full_evaluation_workflow(
@@ -96,4 +95,4 @@ if __name__ == "__main__":
             "max_workers": 4
         }
     }
-    full_evaluation_workflow(input_path, output_dir, models, config) 
+    full_evaluation_workflow(input_path, output_dir, models, config)

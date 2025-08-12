@@ -36,8 +36,25 @@ def evaluation_pipeline(treatment_result: Dict[str, Any]) -> Dict:
         v = d.get('total_score')
         return float(v) if isinstance(v, (int, float)) else default
 
+    def _get_device_count(d: Dict[str, Any]) -> int:
+        """获取设备数量"""
+        if not isinstance(d, dict):
+            return 0
+        return d.get('device_count', d.get('count', 0))
+
+    # 详细打印每个维度的评分结果
+    logger.info("================ 单项评分详细结果 ================")
+    logger.info(f"🏗️  架空线评分: {_safe_total(overhead):.2f}分, 设备数量: {_get_device_count(overhead)}")
+    logger.info(f"🔌 电缆线路评分: {_safe_total(cable):.2f}分, 设备数量: {_get_device_count(cable)}")
+    logger.info(f"📦 分支箱评分: {_safe_total(branch):.2f}分, 设备数量: {_get_device_count(branch)}")
+    logger.info(f"🔗 接入点评分: {_safe_total(accessp):.2f}分, 设备数量: {_get_device_count(accessp)}")
+    logger.info(f"📊 计量箱评分: {_safe_total(meter):.2f}分, 设备数量: {_get_device_count(meter)}")
+    
     total = _safe_total(overhead) + _safe_total(cable) + _safe_total(branch) + _safe_total(accessp) + _safe_total(meter)
     level = _level_from_100(total)
+    
+    logger.info(f"📈 总评分: {total:.2f}分, 等级: {level}")
+    logger.info("================================================")
     basis: List[str] = [
         '本次评分聚合：架空线20分 + 低压电缆线路20分 + 分支箱20分 + 接入点20分 + 计量箱20分，总计100分'
     ]
