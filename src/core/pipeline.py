@@ -21,6 +21,11 @@ try:
     )
     # 导入模型接口
     from ..models import get_model, BaseModel
+    # 导入实验追踪
+    from ..tracking import (
+        GISExperimentTracker,
+        APICallRecord
+    )
 except ImportError:
     # 绝对导入
     from core.data_types import (
@@ -28,6 +33,10 @@ except ImportError:
         ModelInfo, GISData
     )
     from models import get_model, BaseModel
+    from tracking import (
+        GISExperimentTracker,
+        APICallRecord
+    )
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -37,6 +46,7 @@ def process_single_image(
     image_input: ImageInput, 
     models: List[str] = None,
     prompt: Optional[str] = None,
+    experiment_tracker: Optional[GISExperimentTracker] = None,
     **kwargs
 ) -> List[TreatmentResult]:
     """
@@ -100,6 +110,13 @@ def process_single_image(
             treatment_resp: TreatmentResponse = model.beautify(gis_dict, prompt, validated_input.visual_image_path)
             treatment_time = time.perf_counter() - treatment_start
             
+            # 记录治理API调用到实验追踪器
+            if experiment_tracker:
+                _record_api_call_to_tracker(
+                    experiment_tracker, model_name, "beautify", 
+                    gis_dict, treatment_resp, treatment_time, True
+                )
+            
             logger.info(f"治理完成，用时: {treatment_time:.2f}s")
             
             # 6. 生成治理后的可视化图片
@@ -117,6 +134,14 @@ def process_single_image(
             }
             evaluation_resp: EvaluationResponse = model.evaluate(gis_dict, treated_gis_dict)
             eval_time = time.perf_counter() - eval_start
+            
+            # 记录评分API调用到实验追踪器
+            if experiment_tracker:
+                _record_api_call_to_tracker(
+                    experiment_tracker, model_name, "evaluate", 
+                    {"original": gis_dict, "treated": treated_gis_dict}, 
+                    evaluation_resp, eval_time, True
+                )
             
             logger.info(f"评分完成，用时: {eval_time:.2f}s, 美观性评分: {evaluation_resp.beauty_score}")
             
@@ -169,6 +194,7 @@ def process_batch(
     enable_wandb: bool = True,
     on_progress: Optional[Callable[[int, int, str], None]] = None,
     skip_ids: Optional[Set[str]] = None,
+    experiment_tracker: Optional[GISExperimentTracker] = None,
     **kwargs
 ) -> BatchResult:
     """
@@ -181,6 +207,7 @@ def process_batch(
         enable_wandb: 是否启用WandB追踪
         on_progress: 进度回调 (done, total, current_id)
         skip_ids: 可选，跳过这些input_id
+        experiment_tracker: 可选，实验追踪器实例
         **kwargs: 其他配置参数
     
     Returns:
@@ -222,10 +249,10 @@ def process_batch(
         # 3. 并行处理
         if max_workers > 1 and total > 1:
             logger.info("使用多进程并行处理")
-            all_results = _process_batch_parallel(pending_inputs, models, max_workers, on_progress=on_progress, **kwargs)
+            all_results = _process_batch_parallel(pending_inputs, models, max_workers, on_progress=on_progress, experiment_tracker=experiment_tracker, **kwargs)
         else:
             logger.info("使用单进程顺序处理")
-            all_results = _process_batch_sequential(pending_inputs, models, on_progress=on_progress, **kwargs)
+            all_results = _process_batch_sequential(pending_inputs, models, on_progress=on_progress, experiment_tracker=experiment_tracker, **kwargs)
         
         # 4. 记录结果到WandB
         if enable_wandb and wandb_run_id:
@@ -318,13 +345,14 @@ def _process_batch_parallel(
     models: List[str], 
     max_workers: int,
     on_progress: Optional[Callable[[int, int, str], None]] = None,
+    experiment_tracker: Optional[GISExperimentTracker] = None,
     **kwargs
 ) -> List[TreatmentResult]:
     """并行批量处理"""
     # 准备任务列表
     tasks = []
     for image_input in inputs:
-        tasks.append((image_input, models, kwargs))
+        tasks.append((image_input, models, experiment_tracker, kwargs))
     
     # 使用进程池并行处理
     with mp.Pool(processes=max_workers) as pool:
@@ -352,6 +380,7 @@ def _process_batch_sequential(
     inputs: List[ImageInput], 
     models: List[str],
     on_progress: Optional[Callable[[int, int, str], None]] = None,
+    experiment_tracker: Optional[GISExperimentTracker] = None,
     **kwargs
 ) -> List[TreatmentResult]:
     """顺序批量处理"""
@@ -361,7 +390,7 @@ def _process_batch_sequential(
     for i, image_input in enumerate(inputs):
         logger.info(f"处理图片 {i+1}/{total}: {image_input.input_id}")
         try:
-            results = process_single_image(image_input, models, **kwargs)
+            results = process_single_image(image_input, models, experiment_tracker=experiment_tracker, **kwargs)
             all_results.extend(results)
         except Exception as e:
             logger.error(f"处理图片 {image_input.input_id} 失败: {e}")
@@ -375,11 +404,99 @@ def _process_batch_sequential(
     return all_results
 
 
+def _record_api_call_to_tracker(experiment_tracker: GISExperimentTracker, 
+                               model_name: str, api_type: str, 
+                               input_data: Dict, output_data: Any, 
+                               response_time: float, success: bool) -> None:
+    """
+    记录API调用到实验追踪器
+    
+    Args:
+        experiment_tracker: 实验追踪器实例
+        model_name: 模型名称
+        api_type: API类型（beautify或evaluate）
+        input_data: 输入数据
+        output_data: 输出数据
+        response_time: 响应时间
+        success: 是否成功
+    """
+    try:
+        # 计算成本和token使用量
+        cost = 0.0
+        tokens_used = 0
+        
+        if hasattr(output_data, 'token_usage') and output_data.token_usage:
+            tokens_used = output_data.token_usage.total_tokens
+            # 这里可以根据模型计算实际成本
+            cost = tokens_used * 0.0001  # 简化的成本计算
+        
+        # 将输入数据转换为可序列化格式
+        serializable_input = _make_serializable(input_data)
+        
+        # 将输出数据转换为可序列化格式
+        if hasattr(output_data, '__dict__'):
+            serializable_output = _make_serializable(output_data.__dict__)
+        else:
+            serializable_output = {"raw_output": str(output_data)}
+        
+        # 记录API调用
+        experiment_tracker.log_api_call(
+            model_name=f"{model_name}_{api_type}",
+            input_data=serializable_input,
+            output=serializable_output,
+            metrics={
+                'response_time': response_time,
+                'success': success,
+                'api_type': api_type
+            },
+            cost=cost,
+            tokens_used=tokens_used
+        )
+        
+    except Exception as e:
+        logger.warning(f"记录API调用到追踪器失败: {e}")
+
+
+def _make_serializable(data: Any) -> Dict:
+    """
+    将数据转换为JSON可序列化的格式
+    
+    Args:
+        data: 需要转换的数据
+        
+    Returns:
+        Dict: 可序列化的字典
+    """
+    if isinstance(data, dict):
+        result = {}
+        for key, value in data.items():
+            if hasattr(value, '__dict__'):  # 自定义对象
+                result[key] = _make_serializable(value.__dict__)
+            elif isinstance(value, (list, tuple)):
+                result[key] = [_make_serializable(item) if hasattr(item, '__dict__') else item for item in value]
+            elif isinstance(value, dict):
+                result[key] = _make_serializable(value)
+            else:
+                try:
+                    # 尝试JSON序列化测试
+                    import json
+                    json.dumps(value)
+                    result[key] = value
+                except (TypeError, ValueError):
+                    # 不可序列化的对象转为字符串
+                    result[key] = str(value)
+        return result
+    elif hasattr(data, '__dict__'):
+        return _make_serializable(data.__dict__)
+    else:
+        return {"value": str(data)}
+
+
 def _process_single_task(task_data) -> List[TreatmentResult]:
     """处理单个任务（用于多进程）"""
-    image_input, models, kwargs = task_data
+    image_input, models, experiment_tracker, kwargs = task_data
     try:
-        return process_single_image(image_input, models, **kwargs)
+        return process_single_image(image_input, models, experiment_tracker=experiment_tracker, **kwargs)
     except Exception as e:
         logger.error(f"处理任务失败: {e}")
         return []

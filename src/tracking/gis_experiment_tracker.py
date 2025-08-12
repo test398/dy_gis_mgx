@@ -18,13 +18,13 @@ from pathlib import Path
 
 from wandb import Settings
 # 配置日志
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.INFO)  # 注释掉，使用main.py中的配置
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class GISExperimentConfig:
-    """GIS实验配置数据类"""
+    """GIS实验配置"""
     experiment_id: str
     setting_name: str  # Setting_A, Setting_B, Setting_C等
     data_version: str  # 标注数据v1, 标注数据v2, 扩展数据集等
@@ -36,6 +36,9 @@ class GISExperimentConfig:
     entity: Optional[str] = None
     tags: List[str] = None
     notes: str = ""
+    # WandB恢复相关参数
+    resume_run_id: Optional[str] = None  # 要恢复的运行ID
+    resume_mode: str = "allow"  # 恢复模式: "allow", "must", "never"
 
     def __post_init__(self):
         if self.tags is None:
@@ -131,26 +134,44 @@ class GISExperimentTracker:
         self.experiment_start_time = time.time()
         
         try:
-            # 自动登录wandb
+            # 自动登录wandb - 使用环境变量或交互式登录
             if not wandb.run:
-                wandb.login(key="1d7931063f483ab522c3a5fbbded1557fb842d6d")
+                import os
+                api_key = os.getenv('WANDB_API_KEY')
+                if api_key:
+                    wandb.login(key=api_key)
+                    logger.info("使用环境变量WANDB_API_KEY登录WandB")
+                else:
+                    # 尝试使用已保存的登录信息
+                    try:
+                        wandb.login()
+                        logger.info("使用已保存的登录信息登录WandB")
+                    except Exception as login_e:
+                        logger.warning(f"WandB登录失败: {login_e}，将使用离线模式")
             
-            entity = self.config.entity or "luozhengwei2022-"
+            entity = self.config.entity or "dy_gis_mgx_"
+            
+            # 准备WandB初始化参数
+            init_params = {
+                "project": self.config.project_name,
+                "name": self.config.experiment_id,
+                "group": self.config.setting_name,  # 按Setting分组
+                "entity": entity,
+                "tags": self.config.tags,
+                "notes": self.config.notes,
+                "config": asdict(self.config),
+                "settings": wandb.Settings(init_timeout=15)
+            }
+            
+            # 添加resume相关参数
+            if self.config.resume_run_id and self.config.resume_mode != "never":
+                init_params["id"] = self.config.resume_run_id
+                init_params["resume"] = self.config.resume_mode
+                logger.info(f"尝试恢复WandB运行: {self.config.resume_run_id} (模式: {self.config.resume_mode})")
             
             # 尝试在线模式
             try:
-                self.wandb_run = wandb.init(
-                    project=self.config.project_name,
-                    name=self.config.experiment_id,
-                    group=self.config.setting_name,  # 按Setting分组
-                    entity=entity,
-                    tags=self.config.tags,
-                    notes=self.config.notes,
-                    config=asdict(self.config),
-                    settings=wandb.Settings(
-                        init_timeout=15
-                    )
-                )
+                self.wandb_run = wandb.init(**init_params)
                 logger.info(f"GIS实验已在线初始化: {self.config.experiment_id} (Setting: {self.config.setting_name})")
                 return
             except Exception as e:
@@ -158,19 +179,12 @@ class GISExperimentTracker:
             
             # 尝试离线模式
             try:
-                self.wandb_run = wandb.init(
-                    project=self.config.project_name,
-                    name=self.config.experiment_id,
-                    group=self.config.setting_name,
-                    entity=entity,
-                    tags=self.config.tags,
-                    notes=self.config.notes,
-                    config=asdict(self.config),
-                    settings=wandb.Settings(
-                        mode="offline",
-                        init_timeout=5
-                    )
+                offline_params = init_params.copy()
+                offline_params["settings"] = wandb.Settings(
+                    mode="offline",
+                    init_timeout=5
                 )
+                self.wandb_run = wandb.init(**offline_params)
                 logger.info(f"GIS实验已离线初始化: {self.config.experiment_id} (Setting: {self.config.setting_name})")
                 return
             except Exception as e2:
@@ -237,19 +251,23 @@ class GISExperimentTracker:
         
         self.api_calls.append(api_record)
         
-        # 记录到WandB（仅在非禁用模式下）
-        if self.wandb_run and hasattr(self.wandb_run, 'log'):
+        # 记录到WandB（仅在正确初始化且非禁用模式下）
+        if self.wandb_run and hasattr(self.wandb_run, 'log') and wandb.run is not None:
             try:
-                wandb.log({
-                    f"{model_name}_api_call": {
-                        "response_time": api_record.response_time,
-                        "success": api_record.success,
-                        "cost": api_record.cost or 0.0,
-                        "tokens_used": api_record.tokens_used or 0,
-                        "input_hash": input_hash,
-                        "output_hash": output_hash
-                    }
-                })
+                # 确保WandB运行状态正常
+                if wandb.run.mode != 'disabled':
+                    wandb.log({
+                        f"{model_name}_api_call": {
+                            "response_time": api_record.response_time,
+                            "success": api_record.success,
+                            "cost": api_record.cost or 0.0,
+                            "tokens_used": api_record.tokens_used or 0,
+                            "input_hash": input_hash,
+                            "output_hash": output_hash
+                        }
+                    })
+                else:
+                    logger.debug(f"WandB处于禁用模式，跳过API调用记录: {model_name}")
             except Exception as e:
                 logger.warning(f"记录API调用到WandB失败: {e}")
         
@@ -518,7 +536,13 @@ class GISExperimentTracker:
     def _calculate_data_hash(self, data: Dict) -> str:
         """计算数据哈希值"""
         import hashlib
-        data_str = json.dumps(data, sort_keys=True)
+        try:
+            # 尝试直接序列化
+            data_str = json.dumps(data, sort_keys=True)
+        except TypeError as e:
+            # 如果包含不可序列化的对象，转换为字符串表示
+            logger.warning(f"数据包含不可序列化对象，使用字符串表示: {e}")
+            data_str = str(data)
         return hashlib.md5(data_str.encode()).hexdigest()
     
     def _analyze_api_performance(self) -> Dict[str, Any]:
@@ -594,6 +618,8 @@ def create_gis_experiment_tracker(experiment_id: str,
                                  setting_name: str,
                                  data_version: str,
                                  evaluation_criteria: str,
+                                 resume_run_id: Optional[str] = None,
+                                 resume_mode: str = "allow",
                                  **kwargs) -> GISExperimentTracker:
     """
     创建GIS实验追踪器的便捷函数
@@ -603,6 +629,8 @@ def create_gis_experiment_tracker(experiment_id: str,
         setting_name: Setting名称 (Setting_A, Setting_B, Setting_C等)
         data_version: 数据集版本 (标注数据v1, 标注数据v2, 扩展数据集等)
         evaluation_criteria: 评价标准 (5项评分标准, 改进评价标准, 完整评价体系等)
+        resume_run_id: 要恢复的WandB运行ID (可选)
+        resume_mode: 恢复模式 ("allow", "must", "never", 默认"allow")
         **kwargs: 其他配置参数
         
     Returns:
@@ -613,10 +641,12 @@ def create_gis_experiment_tracker(experiment_id: str,
         setting_name=setting_name,
         data_version=data_version,
         evaluation_criteria=evaluation_criteria,
+        resume_run_id=resume_run_id,
+        resume_mode=resume_mode,
         **kwargs
     )
     
     tracker = GISExperimentTracker(config)
     tracker.init_experiment()
     
-    return tracker 
+    return tracker

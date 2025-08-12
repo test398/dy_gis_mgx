@@ -16,7 +16,7 @@ import numpy as np
 import wandb
 
 # 配置日志
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.INFO)  # 注释掉，使用main.py中的配置
 logger = logging.getLogger(__name__)
 
 
@@ -952,4 +952,4 @@ def create_prompt_optimizer(wandb_project: str = "gis-prompt-optimization") -> P
     Returns:
         PromptOptimizer: Prompt优化器实例
     """
-    return PromptOptimizer(wandb_project=wandb_project) 
+    return PromptOptimizer(wandb_project=wandb_project)

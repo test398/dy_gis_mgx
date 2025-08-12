@@ -156,6 +156,21 @@ def parse_arguments() -> argparse.Namespace:
         help='实验设置名称（默认: Setting_A）'
     )
     
+    # WandB恢复选项
+    parser.add_argument(
+        '--resume-run-id',
+        type=str,
+        help='要恢复的WandB运行ID（如果提供，将恢复现有运行而不是创建新运行）'
+    )
+    
+    parser.add_argument(
+        '--resume-mode',
+        type=str,
+        choices=['allow', 'must', 'never'],
+        default='allow',
+        help='WandB恢复模式：allow=允许恢复或创建新运行，must=必须恢复现有运行，never=总是创建新运行（默认: allow）'
+    )
+    
     # 评分选项
     parser.add_argument(
         '--enable-scoring',
@@ -219,7 +234,8 @@ def load_config(config_path: str = None) -> dict:
 def process_areas(input_path: str, output_dir: str, models: list, config: dict, 
                  enable_tracking: bool = False, experiment_name: str = None, 
                  setting_name: str = 'Setting_A', enable_scoring: bool = False,
-                 scoring_only: bool = False, save_scoring_details: bool = False) -> None:
+                 scoring_only: bool = False, save_scoring_details: bool = False,
+                 resume_run_id: str = None, resume_mode: str = 'allow') -> None:
     """
     处理台区数据的主函数
     
@@ -234,6 +250,8 @@ def process_areas(input_path: str, output_dir: str, models: list, config: dict,
         enable_scoring: 是否启用治理前后评分对比分析
         scoring_only: 是否仅执行评分分析（不进行治理）
         save_scoring_details: 是否保存详细评分结果到JSON文件
+        resume_run_id: 要恢复的WandB运行ID（可选）
+        resume_mode: WandB恢复模式（allow/must/never）
     """
     from pathlib import Path
     
@@ -289,7 +307,9 @@ def process_areas(input_path: str, output_dir: str, models: list, config: dict,
             algorithm_version=experiment_config.algorithm_version,
             prompt_version=experiment_config.prompt_version,
             tags=experiment_config.tags,
-            notes=experiment_config.notes
+            notes=experiment_config.notes,
+            resume_run_id=resume_run_id,
+            resume_mode=resume_mode
         )
         logger.info(f"🔬 实验追踪已启用: {experiment_name} (Setting: {setting_name})")
     
@@ -762,10 +782,6 @@ def _upload_experiment_to_server(experiment_tracker: GISExperimentTracker,
         
         logger = logging.getLogger(__name__)
         
-        # 设置代理（参考codespace/main.py）
-        os.environ['HTTP_PROXY'] = 'http://127.0.0.1:7890'
-        os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:7890'
-        
         # 确保WandB已初始化
         if not experiment_tracker.wandb_run:
             logger.warning("WandB未初始化，跳过上传")
@@ -898,7 +914,9 @@ def main() -> None:
             setting_name=args.setting_name,
             enable_scoring=args.enable_scoring,
             scoring_only=args.scoring_only,
-            save_scoring_details=args.save_scoring_details
+            save_scoring_details=args.save_scoring_details,
+            resume_run_id=args.resume_run_id,
+            resume_mode=args.resume_mode
         )
         
         logger.info("处理完成")
@@ -914,10 +932,11 @@ def main() -> None:
 if __name__ == "__main__":
     sys.argv = [
         "main.py",
-        "--output", "D:\\work\\resGIS",
+        "--output", "D:\\work\\resGIS_qwen",
         "--enable-scoring",
         "--enable-tracking",
         "--save-scoring-details",
+        "--resume-run-id", "eyunvwgr",
         "D:\\work\\dy_gis_mgx\\标注数据目录\\有对应关系的标注结果数据"
     ]
     main()

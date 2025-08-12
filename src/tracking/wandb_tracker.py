@@ -16,7 +16,7 @@ import numpy as np
 from pathlib import Path
 
 # 配置日志
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.INFO)  # 注释掉，使用main.py中的配置
 logger = logging.getLogger(__name__)
 
 
@@ -25,7 +25,7 @@ class ExperimentConfig:
     """实验配置数据类"""
     experiment_name: str
     project_name: str = "grid-beautification"
-    entity: Optional[str] = None
+    entity: Optional[str] = "dy_gis_mgx_"
     tags: List[str] = None
     notes: str = ""
 
@@ -97,10 +97,21 @@ class ExperimentTracker:
         self.experiment_start_time = time.time()
         
         try:
-            # 自动登录wandb
+            # 自动登录wandb - 使用环境变量或交互式登录
             if not wandb.run:
-                wandb.login(key="1d7931063f483ab522c3a5fbbded1557fb842d6d")
-            entity = self.config.entity or "luozhengwei2022-"
+                import os
+                api_key = os.getenv('WANDB_API_KEY')
+                if api_key:
+                    wandb.login(key=api_key)
+                    logger.info("使用环境变量WANDB_API_KEY登录WandB")
+                else:
+                    # 尝试使用已保存的登录信息
+                    try:
+                        wandb.login()
+                        logger.info("使用已保存的登录信息登录WandB")
+                    except Exception as login_e:
+                        logger.warning(f"WandB登录失败: {login_e}，将使用离线模式")
+            entity = self.config.entity or "dy_gis_mgx_"
             
             # 尝试在线模式
             try:
@@ -623,4 +634,4 @@ def create_experiment_tracker(experiment_name: str,
     tracker = ExperimentTracker(config)
     tracker.init_experiment()
 
-    return tracker 
+    return tracker

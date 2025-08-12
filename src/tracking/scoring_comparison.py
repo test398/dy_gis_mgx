@@ -19,7 +19,7 @@ from scipy import stats
 import wandb
 
 # 配置日志
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.INFO)  # 注释掉，使用main.py中的配置
 logger = logging.getLogger(__name__)
 
 
@@ -689,4 +689,4 @@ def create_scoring_comparison_system(wandb_project: str = "gis-scoring-optimizat
     Returns:
         ScoringComparison: 评分对比系统实例
     """
-    return ScoringComparison(wandb_project=wandb_project) 
+    return ScoringComparison(wandb_project=wandb_project)
