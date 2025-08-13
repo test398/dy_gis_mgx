@@ -132,37 +132,61 @@ class BaseModel(ABC):
     
     def evaluate(self, original_gis_data: dict, treated_gis_data: dict) -> EvaluationResponse:
         """
-        美观性评分接口 (通用实现)
+        美观性评分接口 - 使用单项评分流程
         
         Args:
             original_gis_data: 原始GIS数据
             treated_gis_data: 治理后的GIS数据
             
         Returns:
-            dict: 评分结果
+            EvaluationResponse: 评分结果
         """
-        self.logger.info("开始美观性评分")
+        self.logger.info("开始美观性评分 - 使用单项评分流程")
         
-        # 构建评分消息
-        messages = self._build_evaluate_messages(original_gis_data, treated_gis_data)
-        
-        # 调用API
         try:
-            api_result = self._make_api_call_with_retry(messages)
+            # 导入单项评分流程
+            from core.evaluation import evaluation_pipeline
             
-            # 解析评分结果
-            evaluation_data = self._parse_evaluation_response(api_result["response"])
+            # 对治理后的数据进行单项评分
+            evaluation_result = evaluation_pipeline({'gis_data': treated_gis_data})
             
-            self.logger.info(f"评分完成，总分: {evaluation_data.get('beauty_score', 0)}")
+            # 提取评分结果
+            beauty_score = evaluation_result.get('total_score', 0.0)
+            
+            # 构建维度评分
+            dimension_scores = {
+                'overhead_lines': evaluation_result.get('overhead', {}).get('total_score', 0.0),
+                'cable_lines': evaluation_result.get('cable_lines', {}).get('total_score', 0.0),
+                'branch_boxes': evaluation_result.get('branch_boxes', {}).get('total_score', 0.0),
+                'access_points': evaluation_result.get('access_points', {}).get('total_score', 0.0),
+                'meter_boxes': evaluation_result.get('meter_boxes', {}).get('total_score', 0.0)
+            }
+            
+            # 构建改善分析
+            improvement_analysis = {
+                'evaluation_level': evaluation_result.get('level', ''),
+                'veto_applied': evaluation_result.get('veto', False),
+                'veto_reasons': evaluation_result.get('veto_reasons', []),
+                'details': evaluation_result.get('details', {})
+            }
+            
+            # 构建评分理由
+            reasoning_parts = evaluation_result.get('basis', [])
+            reasoning = '\n'.join(reasoning_parts) if reasoning_parts else f"单项评分完成，总分: {beauty_score}分，等级: {evaluation_result.get('level', '')}。"
+            
+            self.logger.info(f"单项评分完成，总分: {beauty_score}分，等级: {evaluation_result.get('level', '')}")
             
             return EvaluationResponse(
-                **evaluation_data,
-                input_tokens=api_result.get("usage", {}).get("input_tokens", 0),
-                output_tokens=api_result.get("usage", {}).get("output_tokens", 0)
+                beauty_score=beauty_score,
+                dimension_scores=dimension_scores,
+                improvement_analysis=improvement_analysis,
+                reasoning=reasoning,
+                input_tokens=0,  # 单项评分不消耗API tokens
+                output_tokens=0
             )
             
         except Exception as e:
-            self.logger.error(f"评分处理失败: {e}")
+            self.logger.error(f"单项评分处理失败: {e}")
             raise
     
     def _make_api_call_with_retry(self, messages: List[dict]) -> Dict[str, Any]:

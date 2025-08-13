@@ -12,11 +12,11 @@ from datetime import datetime
 
 
 # 导入GIS实验追踪器
-from gis_experiment_tracker import create_gis_experiment_tracker, GISExperimentTracker
-from metrics import calculate_gis_performance_metrics, calculate_setting_comparison_metrics
+from .gis_experiment_tracker import create_gis_experiment_tracker, GISExperimentTracker
+from .metrics import calculate_gis_performance_metrics, calculate_setting_comparison_metrics
 
 # 配置日志
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.INFO)  # 注释掉，使用main.py中的配置
 logger = logging.getLogger(__name__)
 
 
@@ -281,4 +281,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()
