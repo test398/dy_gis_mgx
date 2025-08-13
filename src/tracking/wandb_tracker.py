@@ -14,6 +14,8 @@ import wandb
 import pandas as pd
 import numpy as np
 from pathlib import Path
+import os
+from PIL import Image
 
 # 配置日志
 # logging.basicConfig(level=logging.INFO)  # 注释掉，使用main.py中的配置
@@ -225,7 +227,10 @@ class ExperimentTracker:
                            image_id: str,
                            model_name: str,
                            scores: Dict[str, float],
-                           human_scores: Optional[Dict[str, float]] = None) -> None:
+                           human_scores: Optional[Dict[str, float]] = None,
+                           before_image_path: Optional[str] = None,
+                           after_image_path: Optional[str] = None,
+                           result_image_path: Optional[str] = None) -> None:
         """
         记录评分结果
 
@@ -234,6 +239,9 @@ class ExperimentTracker:
             model_name: 模型名称
             scores: AI评分结果
             human_scores: 人工评分结果
+            before_image_path: 治理前图片路径（可选）
+            after_image_path: 治理后图片路径（可选）
+            result_image_path: 结果图片路径（可选）
         """
         # 计算改善指标
         improvement_metrics = None
@@ -268,7 +276,191 @@ class ExperimentTracker:
                         "image_id": image_id
                     })
 
+        # 上传相关图片
+        if before_image_path and after_image_path:
+            self.log_image_comparison(
+                before_image_path=before_image_path,
+                after_image_path=after_image_path,
+                image_id=image_id,
+                model_name=model_name
+            )
+        elif result_image_path:
+            self.log_image(
+                image_path=result_image_path,
+                caption=f"评分结果图片 - {image_id} ({model_name})",
+                image_type="scoring_result"
+            )
+        elif before_image_path:
+            self.log_image(
+                image_path=before_image_path,
+                caption=f"原始图片 - {image_id}",
+                image_type="original"
+            )
+        elif after_image_path:
+            self.log_image(
+                image_path=after_image_path,
+                caption=f"处理后图片 - {image_id} ({model_name})",
+                image_type="processed"
+            )
+
         logger.info(f"评分结果已记录: {image_id}, 模型: {model_name}")
+
+    def log_image(self, 
+                  image_path: str, 
+                  caption: str = "", 
+                  step: Optional[int] = None,
+                  image_type: str = "result") -> None:
+        """
+        上传图片到WandB
+        
+        Args:
+            image_path: 图片文件路径
+            caption: 图片说明
+            step: 步骤编号
+            image_type: 图片类型 (original, processed, result, comparison等)
+        """
+        if not self.wandb_run:
+            logger.warning("WandB未初始化，无法上传图片")
+            return
+            
+        try:
+            # 检查文件是否存在
+            if not os.path.exists(image_path):
+                logger.error(f"图片文件不存在: {image_path}")
+                return
+                
+            # 获取图片信息
+            image_name = os.path.basename(image_path)
+            
+            # 上传图片
+            wandb_image = wandb.Image(
+                image_path, 
+                caption=caption or image_name
+            )
+            
+            # 记录到WandB
+            log_data = {f"{image_type}_image": wandb_image}
+            if step is not None:
+                wandb.log(log_data, step=step)
+            else:
+                wandb.log(log_data)
+                
+            logger.info(f"图片已上传到WandB: {image_name}, 类型: {image_type}")
+            
+        except Exception as e:
+            logger.error(f"上传图片失败: {e}")
+    
+    def log_image_comparison(self,
+                           before_image_path: str,
+                           after_image_path: str,
+                           image_id: str,
+                           model_name: str = "",
+                           step: Optional[int] = None) -> None:
+        """
+        上传对比图片（治理前后对比）
+        
+        Args:
+            before_image_path: 治理前图片路径
+            after_image_path: 治理后图片路径
+            image_id: 图片ID
+            model_name: 模型名称
+            step: 步骤编号
+        """
+        if not self.wandb_run:
+            logger.warning("WandB未初始化，无法上传对比图片")
+            return
+            
+        try:
+            # 检查文件是否存在
+            if not os.path.exists(before_image_path):
+                logger.error(f"治理前图片不存在: {before_image_path}")
+                return
+            if not os.path.exists(after_image_path):
+                logger.error(f"治理后图片不存在: {after_image_path}")
+                return
+                
+            # 创建对比图片
+            before_image = wandb.Image(
+                before_image_path, 
+                caption=f"治理前 - {image_id}"
+            )
+            after_image = wandb.Image(
+                after_image_path, 
+                caption=f"治理后 - {image_id} ({model_name})"
+            )
+            
+            # 记录到WandB
+            log_data = {
+                f"comparison_{image_id}_before": before_image,
+                f"comparison_{image_id}_after": after_image,
+                "image_id": image_id
+            }
+            
+            if model_name:
+                log_data["model_name"] = model_name
+                
+            if step is not None:
+                wandb.log(log_data, step=step)
+            else:
+                wandb.log(log_data)
+                
+            logger.info(f"对比图片已上传到WandB: {image_id}, 模型: {model_name}")
+            
+        except Exception as e:
+            logger.error(f"上传对比图片失败: {e}")
+    
+    def log_batch_images(self,
+                        image_paths: List[str],
+                        captions: Optional[List[str]] = None,
+                        image_type: str = "batch",
+                        step: Optional[int] = None) -> None:
+        """
+        批量上传图片
+        
+        Args:
+            image_paths: 图片路径列表
+            captions: 图片说明列表
+            image_type: 图片类型
+            step: 步骤编号
+        """
+        if not self.wandb_run:
+            logger.warning("WandB未初始化，无法批量上传图片")
+            return
+            
+        if not image_paths:
+            logger.warning("图片路径列表为空")
+            return
+            
+        try:
+            wandb_images = []
+            
+            for i, image_path in enumerate(image_paths):
+                if not os.path.exists(image_path):
+                    logger.warning(f"图片文件不存在，跳过: {image_path}")
+                    continue
+                    
+                caption = ""
+                if captions and i < len(captions):
+                    caption = captions[i]
+                else:
+                    caption = os.path.basename(image_path)
+                    
+                wandb_image = wandb.Image(image_path, caption=caption)
+                wandb_images.append(wandb_image)
+            
+            if wandb_images:
+                log_data = {f"{image_type}_images": wandb_images}
+                if step is not None:
+                    wandb.log(log_data, step=step)
+                else:
+                    wandb.log(log_data)
+                    
+                logger.info(f"批量上传了 {len(wandb_images)} 张图片到WandB")
+            else:
+                logger.warning("没有有效的图片可上传")
+                
+        except Exception as e:
+            logger.error(f"批量上传图片失败: {e}")
 
     def log_model_comparison(self, results: Dict[str, Dict]) -> None:
         """

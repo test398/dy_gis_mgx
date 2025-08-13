@@ -1,7 +1,7 @@
 """
-智谱GLM-4V模型实现
+智谱GLM模型实现
 
-基于智谱GLM-4V API，适配BaseModel接口
+基于智谱GLM API，支持GLM-4V、GLM-4.5V等多个版本，适配BaseModel接口
 """
 
 import base64
@@ -15,15 +15,15 @@ from .base_model import BaseModel, ModelPricing
 
 
 class GLMModel(BaseModel):
-    """智谱GLM-4V模型实现"""
+    """智谱GLM模型实现 - 支持GLM-4V、GLM-4.5V等多个版本"""
     
-    def __init__(self, api_key: str, model_name: str = "glm-4v", **kwargs):
+    def __init__(self, api_key: str, model_name: str = "glm-4v-plus", **kwargs):
         """
         初始化智谱GLM模型
         
         Args:
             api_key: 智谱API Key
-            model_name: 模型名称，默认使用GLM-4V
+            model_name: 模型名称，默认使用GLM-4V-Plus（GLM-4.5V）
             **kwargs: 其他配置参数
         """
         super().__init__(api_key, model_name, **kwargs)
@@ -31,6 +31,17 @@ class GLMModel(BaseModel):
         # 智谱API配置
         self.base_url = kwargs.get('base_url', "https://open.bigmodel.cn/api/paas/v4/chat/completions")
         self.provider = "智谱AI"
+        
+        # 支持的模型列表
+        self.supported_models = [
+            "glm-4v-plus",  # GLM-4.5V
+            "glm-4v",       # GLM-4V
+            "glm-4-plus",   # GLM-4 Plus
+            "glm-4",        # GLM-4
+        ]
+        
+        if self.model_name not in self.supported_models:
+            self.logger.warning(f"模型 {self.model_name} 可能不受支持，支持的模型: {self.supported_models}")
         
         self.logger.info(f"智谱GLM模型初始化成功: {self.model_name}")
     
@@ -53,10 +64,13 @@ class GLMModel(BaseModel):
             }
             
             # 准备请求数据
+            # 根据模型类型调整参数
+            max_tokens = kwargs.get('max_tokens', 8000 if 'plus' in self.model_name else 4000)
+            
             data = {
                 "model": self.model_name,
                 "messages": messages,
-                "max_tokens": kwargs.get('max_tokens', 4000),
+                "max_tokens": max_tokens,
                 "temperature": kwargs.get('temperature', 0.3),
                 "top_p": kwargs.get('top_p', 0.8),
                 "stream": False
@@ -146,18 +160,28 @@ class GLMModel(BaseModel):
     
     def get_pricing(self) -> ModelPricing:
         """
-        智谱GLM-4V定价信息
+        智谱GLM定价信息
         
         Returns:
             ModelPricing: 定价信息
         """
-        # 基于2025年1月的智谱GLM-4V定价（按美元计算）
-        return ModelPricing(
-            input_price_per_1m_tokens=0.3,   # 约合美元价格
-            output_price_per_1m_tokens=0.9,  # 约合美元价格
-            currency="USD",
-            model_name=self.model_name
-        )
+        # 基于2025年1月的智谱GLM定价（按美元计算）
+        if "plus" in self.model_name or "4.5" in self.model_name:
+            # GLM-4.5V / GLM-4V-Plus 定价
+            return ModelPricing(
+                input_price_per_1m_tokens=0.5,   # GLM-4.5V更高的定价
+                output_price_per_1m_tokens=1.5,  # GLM-4.5V更高的定价
+                currency="USD",
+                model_name=self.model_name
+            )
+        else:
+            # GLM-4V 标准定价
+            return ModelPricing(
+                input_price_per_1m_tokens=0.3,
+                output_price_per_1m_tokens=0.9,
+                currency="USD",
+                model_name=self.model_name
+            )
     
     def _parse_treatment_response(self, response: str) -> dict:
         """
@@ -297,7 +321,7 @@ class GLMModel(BaseModel):
         """
         模拟美化治理过程（用于演示）
         """
-        self.logger.info(f"模拟调用智谱GLM-4V API...")
+        self.logger.info(f"模拟调用智谱GLM API ({self.model_name})...")
         self.logger.info(f"输入数据: {len(gis_data.get('devices', []))}个设备")
         
         import time
@@ -342,5 +366,5 @@ class GLMModel(BaseModel):
                 "spacing_improved": True,
                 "layout_optimized": True
             },
-            "reasoning": "智谱GLM治理后设备布局更加科学，间距更加合理，整体美观性得到显著提升。"
-        } 
+            "reasoning": f"智谱{self.model_name}治理后设备布局更加科学，间距更加合理，整体美观性得到显著提升。"
+        }
