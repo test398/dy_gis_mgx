@@ -12,4 +12,4 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["wandb>=0.15.0"]
+dev = ["wandb>=0.15.0", "weave>=0.50.0"]

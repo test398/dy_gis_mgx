@@ -183,7 +183,12 @@ def process_single_image(
             )
             results.append(failed_result)
     
-    logger.info(f"单图处理完成，成功: {len([r for r in results if r.beauty_score > 0])}, 失败: {len([r for r in results if r.beauty_score <= 0])}")
+    # 治理成功的判断：有治理后的GIS数据且设备数量大于0
+    successful_results = [r for r in results if 
+                         hasattr(r, 'treated_gis_data') and r.treated_gis_data and 
+                         len(getattr(r.treated_gis_data, 'devices', []) or []) > 0]
+    failed_results = [r for r in results if r not in successful_results]
+    logger.info(f"单图处理完成，成功: {len(successful_results)}, 失败: {len(failed_results)}")
     return results
 
 
@@ -195,6 +200,7 @@ def process_batch(
     on_progress: Optional[Callable[[int, int, str], None]] = None,
     skip_ids: Optional[Set[str]] = None,
     experiment_tracker: Optional[GISExperimentTracker] = None,
+    qwen_batch_config = None,
     **kwargs
 ) -> BatchResult:
     """
@@ -249,10 +255,10 @@ def process_batch(
         # 3. 并行处理
         if max_workers > 1 and total > 1:
             logger.info("使用多进程并行处理")
-            all_results = _process_batch_parallel(pending_inputs, models, max_workers, on_progress=on_progress, experiment_tracker=experiment_tracker, **kwargs)
+            all_results = _process_batch_parallel(pending_inputs, models, max_workers, on_progress=on_progress, experiment_tracker=experiment_tracker, qwen_batch_config=qwen_batch_config, **kwargs)
         else:
             logger.info("使用单进程顺序处理")
-            all_results = _process_batch_sequential(pending_inputs, models, on_progress=on_progress, experiment_tracker=experiment_tracker, **kwargs)
+            all_results = _process_batch_sequential(pending_inputs, models, on_progress=on_progress, experiment_tracker=experiment_tracker, qwen_batch_config=qwen_batch_config, **kwargs)
         
         # 4. 记录结果到WandB
         if enable_wandb and wandb_run_id:
@@ -320,7 +326,14 @@ def _get_model_instance(model_name: str, **kwargs) -> BaseModel:
     if not api_key:
         raise ValueError(f"未配置模型 {model_name} 的API密钥")
     
-    return get_model(model_name, api_key=api_key, **kwargs)
+    # 为千问模型传递分批配置
+    model_kwargs = kwargs.copy()
+    if model_name == 'qwen' and 'qwen_batch_config' in kwargs:
+        model_kwargs['batch_config'] = kwargs['qwen_batch_config']
+        # 移除qwen_batch_config，避免传递给其他模型
+        model_kwargs.pop('qwen_batch_config', None)
+    
+    return get_model(model_name, api_key=api_key, **model_kwargs)
 
 
 def _get_default_treatment_prompt() -> str:
@@ -346,13 +359,18 @@ def _process_batch_parallel(
     max_workers: int,
     on_progress: Optional[Callable[[int, int, str], None]] = None,
     experiment_tracker: Optional[GISExperimentTracker] = None,
+    qwen_batch_config = None,
     **kwargs
 ) -> List[TreatmentResult]:
     """并行批量处理"""
     # 准备任务列表
     tasks = []
     for image_input in inputs:
-        tasks.append((image_input, models, experiment_tracker, kwargs))
+        # 将qwen_batch_config添加到kwargs中
+        task_kwargs = kwargs.copy()
+        if qwen_batch_config is not None:
+            task_kwargs['qwen_batch_config'] = qwen_batch_config
+        tasks.append((image_input, models, experiment_tracker, task_kwargs))
     
     # 使用进程池并行处理
     with mp.Pool(processes=max_workers) as pool:
@@ -381,6 +399,7 @@ def _process_batch_sequential(
     models: List[str],
     on_progress: Optional[Callable[[int, int, str], None]] = None,
     experiment_tracker: Optional[GISExperimentTracker] = None,
+    qwen_batch_config = None,
     **kwargs
 ) -> List[TreatmentResult]:
     """顺序批量处理"""
@@ -390,7 +409,11 @@ def _process_batch_sequential(
     for i, image_input in enumerate(inputs):
         logger.info(f"处理图片 {i+1}/{total}: {image_input.input_id}")
         try:
-            results = process_single_image(image_input, models, experiment_tracker=experiment_tracker, **kwargs)
+            # 将qwen_batch_config添加到kwargs中
+            task_kwargs = kwargs.copy()
+            if qwen_batch_config is not None:
+                task_kwargs['qwen_batch_config'] = qwen_batch_config
+            results = process_single_image(image_input, models, experiment_tracker=experiment_tracker, **task_kwargs)
             all_results.extend(results)
         except Exception as e:
             logger.error(f"处理图片 {image_input.input_id} 失败: {e}")

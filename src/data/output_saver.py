@@ -26,9 +26,10 @@ def save_batch_results(batch_result, output_dir):
             devices_cnt = len(getattr(result.treated_gis_data, 'devices', []) or [])
         except Exception:
             devices_cnt = 0
-        if devices_cnt == 0 or (hasattr(result, 'beauty_score') and (result.beauty_score is None or result.beauty_score <= 0)):
+        # 只有当设备数量为0时才跳过保存，评分不影响保存逻辑
+        if devices_cnt == 0:
             base_id = getattr(result.original_input, 'input_id', 'unknown').replace('_zlq', '').replace('_zlh', '')
-            logger.warning(f"治理结果异常，跳过保存：{base_id}（devices={devices_cnt}, beauty_score={getattr(result, 'beauty_score', None)}）")
+            logger.warning(f"治理结果异常，跳过保存：{base_id}（devices={devices_cnt}）")
             continue
 
         # 统一ID，去掉已有后缀，避免 *_zlh_zlh.json

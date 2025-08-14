@@ -160,7 +160,11 @@ class GISExperimentTracker:
                 "tags": self.config.tags,
                 "notes": self.config.notes,
                 "config": asdict(self.config),
-                "settings": wandb.Settings(init_timeout=15)
+                "settings": wandb.Settings(
+                    init_timeout=15,
+                    silent=True,  # 减少输出信息
+                    console="off"  # 关闭控制台输出
+                )
             }
             
             # 添加resume相关参数
@@ -182,7 +186,9 @@ class GISExperimentTracker:
                 offline_params = init_params.copy()
                 offline_params["settings"] = wandb.Settings(
                     mode="offline",
-                    init_timeout=5
+                    init_timeout=5,
+                    silent=True,
+                    console="off"
                 )
                 self.wandb_run = wandb.init(**offline_params)
                 logger.info(f"GIS实验已离线初始化: {self.config.experiment_id} (Setting: {self.config.setting_name})")
@@ -202,7 +208,9 @@ class GISExperimentTracker:
                     config=asdict(self.config),
                     settings=wandb.Settings(
                         mode="disabled",
-                        init_timeout=1
+                        init_timeout=1,
+                        silent=True,
+                        console="off"
                     )
                 )
                 logger.info(f"GIS实验已禁用模式初始化: {self.config.experiment_id} (Setting: {self.config.setting_name})")
@@ -255,7 +263,7 @@ class GISExperimentTracker:
         if self.wandb_run and hasattr(self.wandb_run, 'log') and wandb.run is not None:
             try:
                 # 确保WandB运行状态正常
-                if wandb.run.mode != 'disabled':
+                if hasattr(wandb.run, 'mode') and wandb.run.mode != 'disabled':
                     wandb.log({
                         f"{model_name}_api_call": {
                             "response_time": api_record.response_time,
@@ -266,8 +274,20 @@ class GISExperimentTracker:
                             "output_hash": output_hash
                         }
                     })
-                else:
+                elif hasattr(wandb.run, 'mode'):
                     logger.debug(f"WandB处于禁用模式，跳过API调用记录: {model_name}")
+                else:
+                    # 如果没有mode属性，尝试直接记录
+                    wandb.log({
+                        f"{model_name}_api_call": {
+                            "response_time": api_record.response_time,
+                            "success": api_record.success,
+                            "cost": api_record.cost or 0.0,
+                            "tokens_used": api_record.tokens_used or 0,
+                            "input_hash": input_hash,
+                            "output_hash": output_hash
+                        }
+                    })
             except Exception as e:
                 logger.warning(f"记录API调用到WandB失败: {e}")
         

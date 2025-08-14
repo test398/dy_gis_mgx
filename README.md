@@ -100,6 +100,122 @@ project/
 | 🟡 WandB追踪 | 10% | 🚧 待实现 |
 | 🟡 其他模型 | 20% | 🚧 待实现 |
 
+## 🔧 自动分批处理功能
+
+当输入数据过大时，千问模型支持自动分批处理，避免因输入长度限制导致的输出不完整问题。
+
+### 功能特性
+
+- **智能分割**: 自动将大量GIS数据分割成多个批次
+- **灵活配置**: 支持多种预设配置和自定义配置
+- **重叠处理**: 批次间包含重叠数据，确保处理连续性
+- **重试机制**: 失败批次自动重试，提高成功率
+- **结果合并**: 自动合并多个批次的处理结果
+- **智能推荐**: 根据数据量自动推荐最佳配置
+- **进度跟踪**: 详细的处理进度和状态日志
+
+### BatchConfig配置类
+
+新版本引入了`BatchConfig`配置类，提供更灵活的分批处理配置：
+
+```python
+from models.batch_config import BatchConfig, BatchConfigPresets
+
+# 方式1: 使用预设配置
+conservative_config = BatchConfigPresets.conservative()  # 保守配置
+balanced_config = BatchConfigPresets.balanced()         # 平衡配置
+aggressive_config = BatchConfigPresets.aggressive()     # 激进配置
+
+# 方式2: 自定义配置
+custom_config = BatchConfig(
+    enable_auto_batch=True,
+    max_input_length=12000,
+    batch_overlap=400,
+    max_devices_per_batch=25,
+    safety_margin=0.85,
+    retry_failed_batches=True,
+    max_batch_retries=3
+)
+
+# 方式3: 智能推荐配置
+recommended_config = BatchConfigPresets.recommend_for_data_size(100)
+```
+
+### 使用示例
+
+```python
+from models.qwen_model import QwenModel
+from models.batch_config import BatchConfigPresets
+
+# 使用预设配置
+model = QwenModel(
+    api_key="your_api_key",
+    batch_config=BatchConfigPresets.balanced()
+)
+
+# 或者使用自定义配置
+custom_config = BatchConfig(
+    enable_auto_batch=True,
+    max_input_length=15000,
+    batch_overlap=500,
+    max_devices_per_batch=30
+)
+model = QwenModel(
+    api_key="your_api_key",
+    batch_config=custom_config
+)
+
+# 处理大量数据
+result = model.beautify(large_gis_data, prompt)
+
+# 查看处理元数据
+if 'batch_metadata' in result:
+    meta = result['batch_metadata']
+    print(f"总批次: {meta['total_batches']}")
+    print(f"成功批次: {meta['successful_batches']}")
+    print(f"失败批次: {meta['failed_batches']}")
+```
+
+### 配置参数详解
+
+**基础配置**:
+- `enable_auto_batch`: 是否启用自动分批（默认: True）
+- `max_input_length`: 单次处理的最大字符数（默认: 15000）
+- `batch_overlap`: 批次间重叠字符数（默认: 500）
+- `max_devices_per_batch`: 每批次最大设备数（默认: None，无限制）
+
+**高级配置**:
+- `safety_margin`: 安全边际系数（默认: 0.8）
+- `retry_failed_batches`: 是否重试失败的批次（默认: True）
+- `max_batch_retries`: 最大重试次数（默认: 2）
+
+### 预设配置说明
+
+- **保守配置**: 小批次、多重试，适合稳定性要求高的场景
+- **平衡配置**: 中等批次、适度重试，适合大多数场景
+- **激进配置**: 大批次、少重试，适合快速处理的场景
+- **小数据配置**: 针对小数据量优化
+- **大数据配置**: 针对大数据量优化
+
+### 处理流程
+
+1. **配置验证**: 验证BatchConfig配置的有效性
+2. **输入评估**: 估算输入数据的总长度
+3. **智能分割**: 根据配置参数分割数据
+4. **批次处理**: 逐个处理每个批次，支持重试
+5. **结果合并**: 合并所有成功批次的结果
+6. **元数据记录**: 记录处理统计信息
+
+### 运行测试
+
+```bash
+# 设置API密钥
+export QWEN_API_KEY="your_api_key_here"
+
+# 运行分批处理示例
+python src/models/qwen_batch_example.py
+```
+
 ## 📖 详细文档
 
 更多详细信息请查看 [src/README.md](src/README.md)

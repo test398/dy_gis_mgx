@@ -249,10 +249,14 @@ def main():
     
     try:
         result1 = model_conservative.beautify(large_gis_data, prompt)
-        print(f"保守配置处理完成，设备数量: {len(result1.devices)}")
-        if hasattr(result1, 'metadata') and 'batch_metadata' in result1.metadata:
-            meta = result1.metadata['batch_metadata']
-            print(f"  - 总批次: {meta['total_batches']}, 成功: {meta['successful_batches']}, 失败: {meta['failed_batches']}")
+        if result1['success']:
+            gis_data1 = result1['data']
+            print(f"保守配置处理完成，设备数量: {len(gis_data1.devices)}")
+            if hasattr(gis_data1, 'metadata') and 'batch_metadata' in gis_data1.metadata:
+                meta = gis_data1.metadata['batch_metadata']
+                print(f"  - 总批次: {meta['total_batches']}, 成功: {meta['successful_batches']}, 失败: {meta['failed_batches']}")
+        else:
+            print(f"保守配置处理失败: {result1['message']}")
     except Exception as e:
         print(f"保守配置处理失败: {e}")
     
@@ -263,10 +267,14 @@ def main():
     
     try:
         result2 = model_aggressive.beautify(large_gis_data, prompt)
-        print(f"激进配置处理完成，设备数量: {len(result2.devices)}")
-        if hasattr(result2, 'metadata') and 'batch_metadata' in result2.metadata:
-            meta = result2.metadata['batch_metadata']
-            print(f"  - 总批次: {meta['total_batches']}, 成功: {meta['successful_batches']}, 失败: {meta['failed_batches']}")
+        if result2['success']:
+            gis_data2 = result2['data']
+            print(f"激进配置处理完成，设备数量: {len(gis_data2.devices)}")
+            if hasattr(gis_data2, 'metadata') and 'batch_metadata' in gis_data2.metadata:
+                meta = gis_data2.metadata['batch_metadata']
+                print(f"  - 总批次: {meta['total_batches']}, 成功: {meta['successful_batches']}, 失败: {meta['failed_batches']}")
+        else:
+            print(f"激进配置处理失败: {result2['message']}")
     except Exception as e:
         print(f"激进配置处理失败: {e}")
     
@@ -286,26 +294,30 @@ def main():
     
     try:
         result3 = model_custom.beautify(large_gis_data, prompt)
-        print(f"自定义配置处理完成，设备数量: {len(result3.devices)}")
-        if hasattr(result3, 'metadata') and 'batch_metadata' in result3.metadata:
-            meta = result3.metadata['batch_metadata']
-            print(f"  - 总批次: {meta['total_batches']}, 成功: {meta['successful_batches']}, 失败: {meta['failed_batches']}")
-            print(f"  - 配置详情: {meta['batch_config']}")
-        
-        # 保存结果
-        output_file = "batch_processing_result.json"
-        with open(output_file, 'w', encoding='utf-8') as f:
-            # 将GISData转换为字典格式保存
-            result_dict = {
-                "devices": [device.__dict__ if hasattr(device, '__dict__') else device for device in result3.devices],
-                "buildings": result3.buildings,
-                "roads": result3.roads,
-                "rivers": result3.rivers,
-                "boundaries": result3.boundaries,
-                "metadata": result3.metadata
-            }
-            json.dump(result_dict, f, ensure_ascii=False, indent=2)
-        print(f"结果已保存到: {output_file}")
+        if result3['success']:
+            gis_data3 = result3['data']
+            print(f"自定义配置处理完成，设备数量: {len(gis_data3.devices)}")
+            if hasattr(gis_data3, 'metadata') and 'batch_metadata' in gis_data3.metadata:
+                meta = gis_data3.metadata['batch_metadata']
+                print(f"  - 总批次: {meta['total_batches']}, 成功: {meta['successful_batches']}, 失败: {meta['failed_batches']}")
+                print(f"  - 配置详情: {meta['batch_config']}")
+            
+            # 保存结果
+            output_file = "batch_processing_result.json"
+            with open(output_file, 'w', encoding='utf-8') as f:
+                # 将GISData转换为字典格式保存
+                result_dict = {
+                    "devices": [device.__dict__ if hasattr(device, '__dict__') else device for device in gis_data3.devices],
+                    "buildings": gis_data3.buildings,
+                    "roads": gis_data3.roads,
+                    "rivers": gis_data3.rivers,
+                    "boundaries": gis_data3.boundaries,
+                    "metadata": gis_data3.metadata
+                }
+                json.dump(result_dict, f, ensure_ascii=False, indent=2)
+            print(f"结果已保存到: {output_file}")
+        else:
+            print(f"自定义配置处理失败: {result3['message']}")
         
     except Exception as e:
         print(f"自定义配置处理失败: {e}")
@@ -321,10 +333,14 @@ def main():
     
     try:
         result4 = model_recommended.beautify(large_gis_data, prompt)
-        print(f"推荐配置处理完成，设备数量: {len(result4.devices)}")
-        if hasattr(result4, 'metadata') and 'batch_metadata' in result4.metadata:
-            meta = result4.metadata['batch_metadata']
-            print(f"  - 总批次: {meta['total_batches']}, 成功: {meta['successful_batches']}, 失败: {meta['failed_batches']}")
+        if result4['success']:
+            gis_data4 = result4['data']
+            print(f"推荐配置处理完成，设备数量: {len(gis_data4.devices)}")
+            if hasattr(gis_data4, 'metadata') and 'batch_metadata' in gis_data4.metadata:
+                meta = gis_data4.metadata['batch_metadata']
+                print(f"  - 总批次: {meta['total_batches']}, 成功: {meta['successful_batches']}, 失败: {meta['failed_batches']}")
+        else:
+            print(f"推荐配置处理失败: {result4['message']}")
     except Exception as e:
         print(f"推荐配置处理失败: {e}")
     
@@ -345,7 +361,11 @@ def main():
     
     try:
         result5 = model_disabled.beautify(small_data, prompt)
-        print(f"禁用分批处理完成，设备数量: {len(result5.devices)}")
+        if result5['success']:
+            gis_data5 = result5['data']
+            print(f"禁用分批处理完成，设备数量: {len(gis_data5.devices)}")
+        else:
+            print(f"禁用分批处理失败: {result5['message']}")
     except Exception as e:
         print(f"禁用分批处理失败: {e}")
     

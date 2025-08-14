@@ -156,44 +156,67 @@ class QwenModel(BaseModel):
     
     def beautify(self, gis_data: dict, prompt: str, image_path: Optional[str] = None):
         """重写beautify方法以支持自动分批处理"""
+        from .base_model import TreatmentResponse
+        
         self.logger.info(f"开始治理处理，输入设备数量: {len(gis_data.get('devices', []))}")
         
         try:
             if self.enable_auto_batch:
                 # 使用自动分批处理
-                result = self._process_with_auto_batch(gis_data, prompt, image_path)
+                batch_result = self._process_with_auto_batch(gis_data, prompt, image_path)
+                # _process_with_auto_batch返回字典，需要提取TreatmentResponse
+                if batch_result['success']:
+                    return batch_result['data']  # 直接返回TreatmentResponse对象
+                else:
+                    # 分批处理失败，返回失败的TreatmentResponse
+                    return TreatmentResponse(
+                        treated_gis_data=GISData(devices=[], buildings=[], roads=[], rivers=[], boundaries={}, metadata={}),
+                        input_tokens=0,
+                        output_tokens=0,
+                        processing_time=0.0,
+                        raw_response=batch_result['message'],
+                        confidence_score=0.0
+                    )
             else:
                 # 使用原始处理方式
                 messages = self._build_beautify_messages(gis_data, prompt)
                 if image_path:
                     messages = self._add_image_to_messages(messages, image_path)
                 
-                response = self._make_api_call(messages)
-                result = self._parse_treatment_response(response['response'])
-            
-            self.logger.info(f"治理完成，输出设备数量: {len(result.devices)}")
-            
-            return {
-                "success": True,
-                "data": result,
-                "message": "治理成功完成",
-                "metadata": {
-                    "model": self.model_name,
-                    "provider": self.provider,
-                    "auto_batch_used": self.enable_auto_batch,
-                    "input_devices": len(gis_data.get('devices', [])),
-                    "output_devices": len(result.devices)
-                }
-            }
+                api_response = self._make_api_call(messages)
+                result = self._parse_treatment_response(api_response['response'])
+                
+                # 返回TreatmentResponse对象
+                return TreatmentResponse(
+                    treated_gis_data=result,
+                    input_tokens=api_response['usage']['input_tokens'],
+                    output_tokens=api_response['usage']['output_tokens'],
+                    processing_time=0.0,
+                    raw_response=api_response['response'],
+                    confidence_score=self._extract_confidence(api_response['response'])
+                )
             
         except Exception as e:
             self.logger.error(f"治理处理失败: {e}")
-            return {
-                "success": False,
-                "data": None,
-                "message": f"治理失败: {str(e)}",
-                "error": str(e)
-            }
+            # 异常时也返回TreatmentResponse对象
+            from core.data_types import GISData
+            empty_gis_data = GISData(
+                devices=[],
+                buildings=gis_data.get('buildings', []),
+                roads=gis_data.get('roads', []),
+                rivers=gis_data.get('rivers', []),
+                boundaries=gis_data.get('boundaries', {}),
+                metadata=gis_data.get('metadata', {})
+            )
+            
+            return TreatmentResponse(
+                treated_gis_data=empty_gis_data,
+                input_tokens=0,
+                output_tokens=0,
+                processing_time=0.0,
+                raw_response=f'治理失败: {str(e)}',
+                confidence_score=0.0
+            )
     
     def _build_beautify_messages(self, gis_data: dict, prompt: str) -> List[dict]:
         """构建治理请求的消息（从BaseModel复制）"""
@@ -217,98 +240,179 @@ class QwenModel(BaseModel):
             {"role": "user", "content": user_message}
         ]
     
-    def _process_with_auto_batch(self, gis_data: dict, prompt: str, image_path: Optional[str] = None) -> GISData:
+    def _process_with_auto_batch(self, gis_data: dict, prompt: str, image_path: Optional[str] = None) -> dict:
         """自动分批处理大输入数据"""
-        # 估算输入长度
-        test_messages = self._build_beautify_messages(gis_data, prompt)
-        if image_path:
-            test_messages = self._add_image_to_messages(test_messages, image_path)
+        from .base_model import TreatmentResponse
         
-        input_length = self._estimate_input_length(test_messages)
-        
-        if input_length <= self.max_input_length:
-            # 输入长度在限制内，直接处理
-            self.logger.info(f"输入长度{input_length}在限制内，直接处理")
-            response = self._make_api_call(test_messages)
-            return self._parse_treatment_response(response['response'])
-        
-        # 需要分批处理
-        self.logger.info(f"输入长度{input_length}超过限制{self.max_input_length}，启用分批处理")
-        
-        # 估算每批次最大设备数
-        device_count = len(gis_data.get('devices', []))
-        if device_count == 0:
-            # 如果没有设备，可能是其他数据过大，直接尝试处理
-            response = self._make_api_call(test_messages)
-            return self._parse_treatment_response(response['response'])
-        
-        # 根据输入长度比例估算每批次设备数
-        ratio = self.max_input_length / input_length
-        max_devices_per_batch = max(1, int(device_count * ratio * 0.8))  # 留20%余量
-        
-        self.logger.info(f"每批次最大设备数: {max_devices_per_batch}")
-        
-        # 分割数据
-        batches = self._split_gis_data(gis_data, max_devices_per_batch)
-        
-        # 处理每个批次
-        batch_results = []
-        failed_batches = []
-        
-        for i, batch_data in enumerate(batches):
-            self.logger.info(f"处理批次 {i+1}/{len(batches)}")
+        try:
+            # 估算输入长度
+            test_messages = self._build_beautify_messages(gis_data, prompt)
+            if image_path:
+                test_messages = self._add_image_to_messages(test_messages, image_path)
             
-            success = False
-            retry_count = 0
+            input_length = self._estimate_input_length(test_messages)
             
-            while not success and retry_count <= self.batch_config.max_batch_retries:
-                try:
-                    if retry_count > 0:
-                        self.logger.info(f"批次 {i+1} 重试第 {retry_count} 次")
-                    
-                    # 构建消息
-                    messages = self._build_beautify_messages(batch_data, prompt)
-                    if image_path:
-                        messages = self._add_image_to_messages(messages, image_path)
-                    
-                    # 调用API
-                    response = self._make_api_call(messages)
-                    result = self._parse_treatment_response(response['response'])
-                    batch_results.append(result)
-                    
-                    self.logger.info(f"批次 {i+1} 处理完成，设备数: {len(result.devices)}")
-                    success = True
-                    
-                except Exception as e:
-                    retry_count += 1
-                    self.logger.error(f"批次 {i+1} 处理失败 (尝试 {retry_count}): {e}")
-                    
-                    if retry_count > self.batch_config.max_batch_retries:
-                        if self.batch_config.retry_failed_batches:
-                            self.logger.warning(f"批次 {i+1} 达到最大重试次数，记录为失败批次")
-                            failed_batches.append((i+1, batch_data, str(e)))
-                            # 创建空结果以保持批次完整性
-                            empty_result = GISData(
-                                devices=[],
-                                buildings=[],
-                                roads=[],
-                                rivers=[],
-                                boundaries={},
-                                metadata={'error': str(e), 'batch_index': i}
-                            )
-                            batch_results.append(empty_result)
-                        else:
-                            self.logger.error(f"批次 {i+1} 处理失败，停止处理")
-                            raise
+            if input_length <= self.max_input_length:
+                # 输入长度在限制内，直接处理
+                self.logger.info(f"输入长度{input_length}在限制内，直接处理")
+                response = self._make_api_call(test_messages)
+                result = self._parse_treatment_response(response['response'])
+                
+                # 创建TreatmentResponse对象
+                treatment_response = TreatmentResponse(
+                    treated_gis_data=result,
+                    input_tokens=response['usage']['input_tokens'],
+                    output_tokens=response['usage']['output_tokens'],
+                    processing_time=0.0,
+                    raw_response=response['response'],
+                    confidence_score=self._extract_confidence(response['response'])
+                )
+                
+                return {
+                    'success': True,
+                    'data': treatment_response,
+                    'message': '治理成功完成',
+                    'metadata': {
+                        'input_tokens': response['usage']['input_tokens'],
+                        'output_tokens': response['usage']['output_tokens'],
+                        'processing_time': 0.0
+                    }
+                }
+            
+            # 需要分批处理
+            self.logger.info(f"输入长度{input_length}超过限制{self.max_input_length}，启用分批处理")
+            
+            # 估算每批次最大设备数
+            device_count = len(gis_data.get('devices', []))
+            if device_count == 0:
+                # 如果没有设备，可能是其他数据过大，直接尝试处理
+                response = self._make_api_call(test_messages)
+                result = self._parse_treatment_response(response['response'])
+                
+                # 创建TreatmentResponse对象
+                treatment_response = TreatmentResponse(
+                    treated_gis_data=result,
+                    input_tokens=response['usage']['input_tokens'],
+                    output_tokens=response['usage']['output_tokens'],
+                    processing_time=0.0,
+                    raw_response=response['response'],
+                    confidence_score=self._extract_confidence(response['response'])
+                )
+                
+                return {
+                    'success': True,
+                    'data': treatment_response,
+                    'message': '治理成功完成',
+                    'metadata': {
+                        'input_tokens': response['usage']['input_tokens'],
+                        'output_tokens': response['usage']['output_tokens'],
+                        'processing_time': 0.0
+                    }
+                }
         
-        # 报告失败的批次
-        if failed_batches:
-            self.logger.warning(f"共有 {len(failed_batches)} 个批次处理失败")
-            for batch_num, _, error in failed_batches:
-                self.logger.warning(f"  - 批次 {batch_num}: {error}")
+            # 根据输入长度比例估算每批次设备数
+            ratio = self.max_input_length / input_length
+            max_devices_per_batch = max(1, int(device_count * ratio * 0.8))  # 留20%余量
+            
+            self.logger.info(f"每批次最大设备数: {max_devices_per_batch}")
+            
+            # 分割数据
+            batches = self._split_gis_data(gis_data, max_devices_per_batch)
+            
+            # 处理每个批次
+            batch_results = []
+            failed_batches = []
         
-        # 合并结果
-        return self._merge_treatment_results(batch_results)
+            for i, batch_data in enumerate(batches):
+                self.logger.info(f"处理批次 {i+1}/{len(batches)}")
+                
+                success = False
+                retry_count = 0
+                
+                while not success and retry_count <= self.batch_config.max_batch_retries:
+                    try:
+                        if retry_count > 0:
+                            self.logger.info(f"批次 {i+1} 重试第 {retry_count} 次")
+                        
+                        # 构建消息
+                        messages = self._build_beautify_messages(batch_data, prompt)
+                        if image_path:
+                            messages = self._add_image_to_messages(messages, image_path)
+                        
+                        # 调用API
+                        response = self._make_api_call(messages)
+                        result = self._parse_treatment_response(response['response'])
+                        batch_results.append(result)
+                        
+                        self.logger.info(f"批次 {i+1} 处理完成，设备数: {len(result.devices)}")
+                        success = True
+                        
+                    except Exception as e:
+                        retry_count += 1
+                        self.logger.error(f"批次 {i+1} 处理失败 (尝试 {retry_count}): {e}")
+                        
+                        if retry_count > self.batch_config.max_batch_retries:
+                            if self.batch_config.retry_failed_batches:
+                                self.logger.warning(f"批次 {i+1} 达到最大重试次数，记录为失败批次")
+                                failed_batches.append((i+1, batch_data, str(e)))
+                                # 创建空结果以保持批次完整性
+                                empty_result = GISData(
+                                    devices=[],
+                                    buildings=[],
+                                    roads=[],
+                                    rivers=[],
+                                    boundaries={},
+                                    metadata={'error': str(e), 'batch_index': i}
+                                )
+                                batch_results.append(empty_result)
+                            else:
+                                self.logger.error(f"批次 {i+1} 处理失败，停止处理")
+                                raise
+        
+            # 报告失败的批次
+            if failed_batches:
+                self.logger.warning(f"共有 {len(failed_batches)} 个批次处理失败")
+                for batch_num, _, error in failed_batches:
+                    self.logger.warning(f"  - 批次 {batch_num}: {error}")
+            
+            # 合并结果
+            merged_result = self._merge_treatment_results(batch_results)
+            
+            # 创建TreatmentResponse对象
+            treatment_response = TreatmentResponse(
+                treated_gis_data=merged_result,
+                input_tokens=0,  # 分批处理时暂时设为0
+                output_tokens=0,  # 分批处理时暂时设为0
+                processing_time=0.0,
+                raw_response="分批处理完成",
+                confidence_score=0.9
+            )
+            
+            return {
+                'success': True,
+                'data': treatment_response,
+                'message': f'分批治理成功完成，共处理{len(batches)}个批次',
+                'metadata': {
+                    'input_tokens': 0,
+                    'output_tokens': 0,
+                    'processing_time': 0.0,
+                    'batch_count': len(batches),
+                    'failed_batches': len(failed_batches)
+                }
+            }
+            
+        except Exception as e:
+            self.logger.error(f"分批处理失败: {e}")
+            return {
+                'success': False,
+                'data': None,
+                'message': f'分批处理失败: {str(e)}',
+                'metadata': {
+                    'input_tokens': 0,
+                    'output_tokens': 0,
+                    'processing_time': 0.0
+                }
+            }
     
     def _make_api_call(self, messages: List[dict], **kwargs) -> Dict[str, Any]:
         """
@@ -435,7 +539,7 @@ class QwenModel(BaseModel):
             model_name=self.model_name
         )
     
-    def _parse_treatment_response(self, response: str) -> dict:
+    def _parse_treatment_response(self, response: str) -> GISData:
         """
         解析千问的治理响应
         

@@ -214,7 +214,10 @@ class BatchResult:
     def _calculate_summary(self) -> BatchSummary:
         """计算汇总统计"""
         total_images = len(self.results)
-        successful_results = [r for r in self.results if r.beauty_score > 0]
+        # 治理成功的判断：有治理后的GIS数据且设备数量大于0
+        successful_results = [r for r in self.results if 
+                            hasattr(r, 'treated_gis_data') and r.treated_gis_data and 
+                            len(getattr(r.treated_gis_data, 'devices', []) or []) > 0]
         successful_images = len(successful_results)
         failed_images = total_images - successful_images
         

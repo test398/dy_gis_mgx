@@ -40,6 +40,9 @@ from core.pipeline import process_batch
 from core.data_types import BatchInput, ImageInput, GISData
 from data.input_loader import load_gis_data_from_json
 from data.output_saver import save_batch_results
+# 导入千问模型和分批配置
+from src.models.qwen_model import QwenModel
+from src.models.batch_config import BatchConfig, BatchConfigPresets
 
 def setup_logging(log_level: str = "INFO") -> None:
     """
@@ -213,7 +216,18 @@ def load_config(config_path: str = None) -> dict:
             'qwen': {
                 'api_key': os.getenv('QWEN_API_KEY'),
                 'model_name': 'qwen-vl-max-2025-04-08',
-                'timeout': 30
+                'timeout': 30,
+                # 千问模型分批处理配置
+                'batch_config': {
+                    'strategy': 'balanced',  # 可选: conservative, balanced, aggressive, smart, disabled
+                    'enable_auto_batch': True,
+                    'max_input_length': 15000,
+                    'max_devices_per_batch': 50,
+                    'batch_overlap': 500,
+                    'safety_margin': 0.8,
+                    'retry_failed_batches': True,
+                    'max_batch_retries': 2
+                }
             }
             # TODO: 添加其他模型配置
         },
@@ -230,6 +244,57 @@ def load_config(config_path: str = None) -> dict:
     }
     
     return default_config
+
+def _create_qwen_batch_config(config: dict) -> BatchConfig:
+    """
+    根据配置创建千问模型的分批处理配置
+    
+    Args:
+        config: 系统配置字典
+        
+    Returns:
+        BatchConfig: 分批处理配置对象
+    """
+    qwen_config = config.get('models', {}).get('qwen', {})
+    batch_config_dict = qwen_config.get('batch_config', {})
+    
+    # 获取策略名称
+    strategy = batch_config_dict.get('strategy', 'balanced')
+    
+    # 根据策略创建预设配置
+    if strategy == 'conservative':
+        batch_config = BatchConfigPresets.conservative()
+    elif strategy == 'aggressive':
+        batch_config = BatchConfigPresets.aggressive()
+    elif strategy == 'smart':
+        batch_config = BatchConfigPresets.smart_recommended()
+    elif strategy == 'disabled':
+        batch_config = BatchConfigPresets.disabled()
+    else:  # balanced 或其他
+        batch_config = BatchConfigPresets.balanced()
+    
+    # 应用自定义配置覆盖预设值
+    if 'enable_auto_batch' in batch_config_dict:
+        batch_config.enable_auto_batch = batch_config_dict['enable_auto_batch']
+    if 'max_input_length' in batch_config_dict:
+        batch_config.max_input_length = batch_config_dict['max_input_length']
+    if 'max_devices_per_batch' in batch_config_dict:
+        batch_config.max_devices_per_batch = batch_config_dict['max_devices_per_batch']
+    if 'batch_overlap' in batch_config_dict:
+        batch_config.batch_overlap = batch_config_dict['batch_overlap']
+    if 'safety_margin' in batch_config_dict:
+        batch_config.safety_margin = batch_config_dict['safety_margin']
+    if 'retry_failed_batches' in batch_config_dict:
+        batch_config.retry_failed_batches = batch_config_dict['retry_failed_batches']
+    if 'max_batch_retries' in batch_config_dict:
+        batch_config.max_batch_retries = batch_config_dict['max_batch_retries']
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"千问模型分批配置: 策略={strategy}, 启用分批={batch_config.enable_auto_batch}")
+    if batch_config.enable_auto_batch:
+        logger.info(f"分批参数: 最大输入长度={batch_config.max_input_length}, 最大设备数/批={batch_config.max_devices_per_batch}")
+    
+    return batch_config
 
 def process_areas(input_path: str, output_dir: str, models: list, config: dict, 
                  enable_tracking: bool = False, experiment_name: str = None, 
@@ -367,11 +432,18 @@ def process_areas(input_path: str, output_dir: str, models: list, config: dict,
     # # 调用批处理（如果不是仅评分模式）
     batch_result = None
     if inputs and not scoring_only:
+        # 创建千问模型的分批配置（如果使用千问模型）
+        qwen_batch_config = None
+        if 'qwen' in models:
+            qwen_batch_config = _create_qwen_batch_config(config)
+        
         batch_result = process_batch(
             batch_input, 
             models=models,
             max_workers=config['processing']['max_workers'],
-            experiment_tracker=experiment_tracker
+            experiment_tracker=experiment_tracker,
+            # 传递千问模型的分批配置
+            qwen_batch_config=qwen_batch_config
         )
         # 保存结果到输出目录
         save_batch_results(batch_result, output_dir)
@@ -477,15 +549,22 @@ def _record_batch_results_to_tracker(experiment_tracker: GISExperimentTracker,
         
         # 计算总体指标
         total_results = len(batch_result.results)
-        successful_results = [r for r in batch_result.results if r.success]
+        # 治理成功的判断：有治理后的GIS数据且设备数量大于0
+        successful_results = [r for r in batch_result.results if 
+                            hasattr(r, 'treated_gis_data') and r.treated_gis_data and 
+                            len(getattr(r.treated_gis_data, 'devices', []) or []) > 0]
         success_rate = len(successful_results) / total_results if total_results > 0 else 0.0
         
-        # 计算平均美观性分数和改善分数
+        # 计算平均美观性分数和改善分数（包含所有有治理结果的数据，不论评分高低）
         beauty_scores = []
         improvement_scores = []
         dimension_scores_sum = {}
         
         for result in successful_results:
+            # 直接使用beauty_score属性，如果没有evaluation_result
+            if hasattr(result, 'beauty_score') and result.beauty_score is not None:
+                beauty_scores.append(result.beauty_score)
+            
             if hasattr(result, 'evaluation_result') and result.evaluation_result:
                 eval_result = result.evaluation_result
                 if hasattr(eval_result, 'total_score'):
@@ -508,7 +587,7 @@ def _record_batch_results_to_tracker(experiment_tracker: GISExperimentTracker,
         
         # 计算总成本和token使用量
         total_cost = batch_result.summary.total_cost if hasattr(batch_result.summary, 'total_cost') else 0.0
-        total_tokens = sum([r.tokens_used for r in batch_result.results if hasattr(r, 'tokens_used') and r.tokens_used]) or 0
+        total_tokens = sum([r.tokens_used.total_tokens for r in batch_result.results if hasattr(r, 'tokens_used') and r.tokens_used]) or 0
         
         # 计算平均处理时间
         processing_times = [r.processing_time for r in batch_result.results if hasattr(r, 'processing_time') and r.processing_time]
@@ -536,7 +615,17 @@ def _record_batch_results_to_tracker(experiment_tracker: GISExperimentTracker,
         )
         
         # 记录到追踪器
-        experiment_tracker.log_experiment_result(experiment_result)
+        experiment_tracker.log_experiment_result(
+            beauty_score=experiment_result.beauty_score,
+            improvement_score=experiment_result.improvement_score,
+            dimension_scores=experiment_result.dimension_scores,
+            api_success_rate=experiment_result.api_success_rate,
+            json_parse_success_rate=experiment_result.json_parse_success_rate,
+            processing_time=experiment_result.processing_time,
+            total_tokens=experiment_result.total_tokens,
+            total_cost=experiment_result.total_cost,
+            is_best_attempt=experiment_result.is_best_attempt
+        )
         
         # 计算和记录改善指标
         if beauty_scores and improvement_scores:
@@ -699,7 +788,17 @@ def _record_scoring_to_tracker(experiment_tracker, score_result: dict,
             is_best_attempt=True
         )
         
-        experiment_tracker.log_experiment_result(experiment_result)
+        experiment_tracker.log_experiment_result(
+            beauty_score=experiment_result.beauty_score,
+            improvement_score=experiment_result.improvement_score,
+            dimension_scores=experiment_result.dimension_scores,
+            api_success_rate=experiment_result.api_success_rate,
+            json_parse_success_rate=experiment_result.json_parse_success_rate,
+            processing_time=experiment_result.processing_time,
+            total_tokens=experiment_result.total_tokens,
+            total_cost=experiment_result.total_cost,
+            is_best_attempt=experiment_result.is_best_attempt
+        )
         
     except Exception as e:
         logging.warning(f"记录评分结果到追踪器失败: {e}")
