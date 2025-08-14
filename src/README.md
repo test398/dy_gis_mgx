@@ -187,16 +187,90 @@ result = TreatmentResult(
 # 支持的模型类型
 models = ['qwen', 'openai', 'kimi', 'glm']  # 目前只实现了qwen
 
-# 千问模型配置
+#### 千问模型配置
 qwen_model = get_model('qwen', 
     api_key='your-api-key',
     model_name='qwen-vl-max-2025-04-08',
     max_retries=3,
-    timeout=300
+    timeout=300,
+    # 自动分批处理配置
+    enable_auto_batch=True,        # 启用自动分批处理
+    max_input_length=15000,        # 单次处理最大字符数
+    batch_overlap=500              # 批次间重叠字符数
 )
 ```
 
+## 🚀 自动分批处理功能
+
+当输入数据过大导致模型输出不全时，系统会自动将数据分批处理并合并结果。
+
+### 功能特性
+
+- **智能分割**: 根据输入长度自动计算最优批次大小
+- **无缝合并**: 自动合并多个批次的处理结果
+- **错误恢复**: 单个批次失败不影响整体处理
+- **详细日志**: 完整的分批处理过程记录
+
+### 使用示例
+
+```python
+from models.qwen_model import QwenModel
+
+# 创建支持自动分批的模型实例
+model = QwenModel(
+    api_key='your-api-key',
+    enable_auto_batch=True,
+    max_input_length=10000,  # 较小的限制以触发分批
+    batch_overlap=200
+)
+
+# 处理大量设备数据
+large_gis_data = {
+    "devices": [device1, device2, ..., device150],  # 150个设备
+    "buildings": [...],
+    "roads": [...]
+}
+
+# 自动分批处理
+result = model.beautify(large_gis_data, "请优化设备布局")
+
+if result["success"]:
+    print(f"处理完成！输入设备: {result['metadata']['input_devices']}")
+    print(f"输出设备: {result['metadata']['output_devices']}")
+    print(f"使用分批: {result['metadata']['auto_batch_used']}")
+else:
+    print(f"处理失败: {result['message']}")
+```
+
+### 配置参数说明
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enable_auto_batch` | bool | True | 是否启用自动分批处理 |
+| `max_input_length` | int | 15000 | 单次处理的最大字符数 |
+| `batch_overlap` | int | 500 | 批次间重叠字符数（预留） |
+
+### 处理流程
+
+1. **输入评估**: 估算输入数据的字符长度
+2. **分批决策**: 超过限制时自动启用分批处理
+3. **智能分割**: 根据设备数量和输入长度计算最优批次
+4. **并行处理**: 逐个处理每个批次
+5. **结果合并**: 将所有批次结果合并为完整输出
+
+### 运行测试
+
+```bash
+# 设置API密钥
+export QWEN_API_KEY='your-api-key'
+
+# 运行分批处理测试
+python src/models/qwen_batch_example.py
+```
+
 ### 处理配置
+
+```
 
 ```python
 config = {
@@ -205,6 +279,75 @@ config = {
     'batch_size': 10,          # 批处理大小
     'retry_count': 3           # 失败重试次数
 }
+```
+
+## 📊 WandB实验追踪与图片上传
+
+系统集成了完整的WandB实验追踪功能，支持自动上传图片、记录评分结果和API调用指标。
+
+### 图片上传功能
+
+```python
+from src.tracking.wandb_tracker import ExperimentTracker, ExperimentConfig
+
+# 创建追踪器
+config = ExperimentConfig(
+    experiment_name="grid_beautification_exp",
+    project_name="grid-beautification",
+    tags=["beautification", "scoring"]
+)
+tracker = ExperimentTracker(config)
+tracker.init_experiment()
+
+# 1. 上传单张图片
+tracker.log_image(
+    image_path="path/to/result.jpg",
+    caption="处理结果图片",
+    image_type="result"
+)
+
+# 2. 上传对比图片（治理前后）
+tracker.log_image_comparison(
+    before_image_path="path/to/before.jpg",
+    after_image_path="path/to/after.jpg",
+    image_id="IMG_001",
+    model_name="GLM-4V"
+)
+
+# 3. 批量上传图片
+tracker.log_batch_images(
+    image_paths=["img1.jpg", "img2.jpg", "img3.jpg"],
+    captions=["图片1", "图片2", "图片3"],
+    image_type="batch_results"
+)
+
+# 4. 记录评分结果（同时上传图片）
+tracker.log_scoring_result(
+    image_id="IMG_001",
+    model_name="GLM-4V",
+    scores={"美观性": 8.5, "合理性": 9.0},
+    before_image_path="path/to/before.jpg",
+    after_image_path="path/to/after.jpg"
+)
+
+# 结束实验
+tracker.finish_experiment()
+```
+
+### 支持的图片类型
+
+- **original**: 原始图片
+- **processed**: 处理后图片
+- **result**: 结果图片
+- **comparison**: 对比图片
+- **scoring_result**: 评分结果图片
+- **batch**: 批量图片
+
+### 运行演示
+
+```bash
+# 运行图片上传功能演示
+python src/tracking/image_upload_example.py
 ```
 
 ## 🔧 开发状态
@@ -221,8 +364,9 @@ config = {
 ### 🚧 待实现功能
 
 - [ ] 完整的utils模块（可视化、GIS处理）
-- [ ] WandB实验追踪集成
-- [ ] 其他大模型（OpenAI、Kimi、GLM）
+- [x] WandB实验追踪集成（包含图片上传功能）
+- [x] GLM模型实现（支持GLM-4.5V）
+- [ ] 其他大模型（OpenAI、Kimi）
 - [ ] 高级美化算法
 - [ ] 完整的错误处理和日志
 - [ ] 配置文件管理
