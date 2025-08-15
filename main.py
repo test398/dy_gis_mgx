@@ -332,7 +332,7 @@ def process_areas(input_path: str, output_dir: str, models: list, config: dict,
         input_files = [input_path_obj]
     elif input_path_obj.is_dir():
         # 批量处理 (扫描目录中的所有JSON文件)
-        input_files = list(input_path_obj.glob("*.json"))[:20]  # TODO 测试批量运行前五个文件
+        input_files = list(input_path_obj.glob("*.json"))[:400]  # TODO 测试批量运行前五个文件
         logger.info(f"🎯 批量处理台区目录: {input_path}")
         logger.info(f"📋 发现 {len(input_files)} 个数据文件")
     else:

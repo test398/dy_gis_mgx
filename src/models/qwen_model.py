@@ -50,8 +50,15 @@ class QwenModel(BaseModel):
                     max_batch_retries=kwargs.get('max_batch_retries', 2)
                 )
             else:
-                # 使用默认平衡配置
-                self.batch_config = BatchConfigPresets.balanced()
+                # 根据输入数据大小智能选择配置
+                device_count = len(kwargs.get('initial_gis_data', {}).get('devices', []))
+                if device_count > 0:
+                    self.batch_config = BatchConfigPresets.recommend_for_data_size(device_count)
+                    self.logger.info(f"根据设备数量({device_count})自动选择批处理配置")
+                else:
+                    # 使用更保守的默认配置，避免输出超过token限制
+                    self.batch_config = BatchConfigPresets.conservative()
+                    self.logger.info("使用保守的默认批处理配置")
         else:
             self.batch_config = batch_config
         
@@ -87,7 +94,7 @@ class QwenModel(BaseModel):
         return total_length
     
     def _split_gis_data(self, gis_data: dict, max_devices_per_batch: int = None) -> List[dict]:
-        """将GIS数据按设备数量分割成多个批次"""
+        """将GIS数据按设备数量分割成多个批次，考虑输出token限制"""
         devices = gis_data.get('devices', [])
         
         # 使用配置中的设备数限制
@@ -97,6 +104,17 @@ class QwenModel(BaseModel):
         # 如果没有设置设备数限制，使用默认值
         if max_devices_per_batch is None:
             max_devices_per_batch = 50  # 默认值
+        
+        # 根据设备总数动态调整批次大小，避免输出超过token限制
+        total_devices = len(devices)
+        if total_devices > 100:
+            # 对于大数据集，进一步减小批次大小
+            max_devices_per_batch = min(max_devices_per_batch, 10)
+            self.logger.info(f"检测到大数据集({total_devices}个设备)，调整批次大小为{max_devices_per_batch}")
+        elif total_devices > 50:
+            # 对于中等数据集，适度减小批次大小
+            max_devices_per_batch = min(max_devices_per_batch, 15)
+            self.logger.info(f"检测到中等数据集({total_devices}个设备)，调整批次大小为{max_devices_per_batch}")
         
         if len(devices) <= max_devices_per_batch:
             return [gis_data]
@@ -157,8 +175,17 @@ class QwenModel(BaseModel):
     def beautify(self, gis_data: dict, prompt: str, image_path: Optional[str] = None):
         """重写beautify方法以支持自动分批处理"""
         from .base_model import TreatmentResponse
+        from core.data_types import GISData
         
-        self.logger.info(f"开始治理处理，输入设备数量: {len(gis_data.get('devices', []))}")
+        device_count = len(gis_data.get('devices', []))
+        self.logger.info(f"开始治理处理，输入设备数量: {device_count}")
+        
+        # 根据实际数据大小动态调整批处理配置
+        if device_count > 50:
+            # 对于大数据集，使用更保守的配置
+            original_config = self.batch_config
+            self.batch_config = BatchConfigPresets.recommend_for_data_size(device_count)
+            self.logger.info(f"根据设备数量({device_count})动态调整批处理配置: max_devices_per_batch={self.batch_config.max_devices_per_batch}")
         
         try:
             if self.enable_auto_batch:
@@ -199,7 +226,6 @@ class QwenModel(BaseModel):
         except Exception as e:
             self.logger.error(f"治理处理失败: {e}")
             # 异常时也返回TreatmentResponse对象
-            from core.data_types import GISData
             empty_gis_data = GISData(
                 devices=[],
                 buildings=gis_data.get('buildings', []),
@@ -570,17 +596,91 @@ class QwenModel(BaseModel):
             def _json_fix_and_load(s: str):
                 # 去除结尾多余逗号
                 s2 = re.sub(r",\s*([}\]])", r"\1", s)
+                
                 # 尝试直接解析
                 try:
                     return json.loads(s2)
-                except Exception:
-                    # 追加缺失的收尾括号
-                    need_brace = s2.count('{') - s2.count('}')
-                    need_bracket = s2.count('[') - s2.count(']')
-                    if need_brace > 0 or need_bracket > 0:
-                        s3 = s2 + ('}' * max(0, need_brace)) + (']' * max(0, need_bracket))
+                except json.JSONDecodeError as e:
+                    # 尝试修复常见的JSON语法错误
+                    s3 = s2
+                    
+                    # 首先处理模型输出截断的情况（移除"..."标记和相关的不完整结构）
+                    s3 = re.sub(r'\s*\.\.\..*$', '', s3, flags=re.DOTALL)
+                    s3 = re.sub(r',\s*$', '', s3)  # 移除末尾的逗号
+                    
+                    # 然后尝试通用的逗号修复：在数值后添加逗号（如果后面跟着换行和其他内容）
+                    s3 = re.sub(r'(\d+\.?\d*)(\s*\n\s*[\[\{"\d])', r'\1,\2', s3)
+                    
+                    # 修复对象属性之间缺少逗号的问题
+                    s3 = re.sub(r'("[^"]*"\s*:\s*[^,}\]]*)(\s*"[^"]*"\s*:)', r'\1,\2', s3)
+                    
+                    # 修复数组元素之间缺少逗号的问题
+                    s3 = re.sub(r'(})(\s*{)', r'\1,\2', s3)
+                    s3 = re.sub(r'(])(\s*\[)', r'\1,\2', s3)
+                    
+                    # 修复数字/字符串后缺少逗号的问题
+                    s3 = re.sub(r'("[^"]*")(\s*"[^"]*")', r'\1,\2', s3)
+                    s3 = re.sub(r'(\d+)(\s*"[^"]*")', r'\1,\2', s3)
+                    
+                    # 修复数组中数值后缺少逗号的问题（特别处理浮点数）
+                    s3 = re.sub(r'(\d+\.\d+)(\s*\])', r'\1\2', s3)  # 数组末尾的浮点数
+                    s3 = re.sub(r'(\d+\.\d+)(\s*\n\s*\])', r'\1\2', s3)  # 换行后的数组结束
+                    s3 = re.sub(r'(\d+\.\d+)(\s*\n\s*\[)', r'\1,\2', s3)  # 数组间的浮点数
+                    s3 = re.sub(r'(\d+\.\d+)(\s*\n\s*{)', r'\1,\2', s3)  # 对象前的浮点数
+                    
+                    # 修复数组结束后缺少逗号的问题
+                    s3 = re.sub(r'(\])(\s*"[^"]*"\s*:)', r'\1,\2', s3)
+                    
+                    # 修复对象结束后缺少逗号的问题
+                    s3 = re.sub(r'(})(\s*"[^"]*"\s*:)', r'\1,\2', s3)
+                    
+                    # 修复数值后缺少逗号的问题（更精确的模式）
+                    s3 = re.sub(r'(\d+\.?\d*)(\s*\])', r'\1\2', s3)  # 数组内数值
+                    s3 = re.sub(r'(\d+\.?\d*)(\s*})', r'\1\2', s3)   # 对象内数值
+                    
+                    # 修复嵌套数组中缺少逗号的问题
+                    s3 = re.sub(r'(\])(\s*\[)', r'\1,\2', s3)
+                    
+                    # 修复对象属性值后缺少逗号的问题
+                    s3 = re.sub(r'("[^"]*")(\s*"[^"]*"\s*:)', r'\1,\2', s3)
+                    
+                    # 修复数组中对象间缺少逗号的问题
+                    s3 = re.sub(r'(})(\s*{)', r'\1,\2', s3)
+                    
+                    # 修复多层嵌套结构中的逗号问题
+                    s3 = re.sub(r'(\d+\.?\d*)(\s*\]\s*,?\s*\[)', r'\1\2', s3)
+                    
+                    # 修复数组中连续数值缺少逗号的问题
+                    s3 = re.sub(r'(\d+\.\d+)(\s*\n\s*\d+\.\d+)', r'\1,\2', s3)
+                    s3 = re.sub(r'(\d+)(\s*\n\s*\d+)', r'\1,\2', s3)
+                    
+                    # 修复数组中数值和数组结束符之间的问题
+                    s3 = re.sub(r'(\d+\.\d+)(\s*\n\s*\]\s*\n\s*\])', r'\1\2', s3)
+                    
+                    try:
                         return json.loads(s3)
-                    raise
+                    except json.JSONDecodeError as e:
+                        # 处理"Extra data"错误，截取到第一个完整的JSON对象
+                        if "Extra data" in str(e):
+                            try:
+                                # 尝试找到第一个完整的JSON对象的结束位置
+                                decoder = json.JSONDecoder()
+                                obj, idx = decoder.raw_decode(s3)
+                                return obj
+                            except (json.JSONDecodeError, ValueError):
+                                pass
+                        # 追加缺失的收尾括号
+                        need_brace = s3.count('{') - s3.count('}')
+                        need_bracket = s3.count('[') - s3.count(']')
+                        if need_brace > 0 or need_bracket > 0:
+                            s4 = s3 + ('}' * max(0, need_brace)) + (']' * max(0, need_bracket))
+                            try:
+                                return json.loads(s4)
+                            except json.JSONDecodeError:
+                                pass
+                        
+                        # 如果所有修复尝试都失败，抛出原始错误
+                        raise e
 
             def _extract_any_json(text: str):
                 t = text.replace('\u200b', '').replace('\ufeff', '')
@@ -664,6 +764,28 @@ class QwenModel(BaseModel):
                 raw_preview = str(response)[:500]
             self.logger.error(f"解析千问治理响应失败: {e}")
             self.logger.error(f"原始响应: {raw_preview}...")
+            
+            # 保存失败的响应到文件以便调试
+            import os
+            debug_dir = "debug_responses"
+            os.makedirs(debug_dir, exist_ok=True)
+            with open(os.path.join(debug_dir, "failed_response.json"), "w", encoding="utf-8") as f:
+                f.write(raw_text)
+            
+            # 同时保存经过修复处理后的文本
+            try:
+                # 尝试应用修复逻辑看看结果
+                test_text = raw_text
+                test_text = re.sub(r'\s*\.\.\..*$', '', test_text, flags=re.DOTALL)
+                test_text = re.sub(r',\s*$', '', test_text)
+                with open(os.path.join(debug_dir, "processed_response.json"), "w", encoding="utf-8") as f:
+                    f.write(test_text)
+                self.logger.error(f"处理后的响应已保存到: {os.path.join(debug_dir, 'processed_response.json')}")
+            except Exception as debug_e:
+                self.logger.error(f"保存处理后响应失败: {debug_e}")
+            
+            self.logger.error(f"完整响应已保存到: {os.path.join(debug_dir, 'failed_response.json')}")
+            
             raise ValueError(f"无法解析千问治理结果: {str(e)}")
     
     def _parse_evaluation_response(self, response: str) -> Dict[str, Any]:

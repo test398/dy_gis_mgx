@@ -87,12 +87,13 @@ class BatchConfigPresets:
     
     @staticmethod
     def conservative() -> BatchConfig:
-        """保守配置：较小的批次，更安全"""
+        """保守配置：较小的批次，更安全，避免输出超过token限制"""
         return BatchConfig(
             enable_auto_batch=True,
-            max_input_length=8000,
-            batch_overlap=800,
-            safety_margin=0.7,
+            max_input_length=5000,
+            batch_overlap=500,
+            max_devices_per_batch=15,
+            safety_margin=0.6,
             max_batch_retries=3
         )
     
@@ -131,13 +132,13 @@ class BatchConfigPresets:
     
     @staticmethod
     def small_data() -> BatchConfig:
-        """小数据配置：适用于设备数量较少的场景"""
+        """小数据配置：适用于设备数量较少的场景，避免输出超过token限制"""
         return BatchConfig(
             enable_auto_batch=True,
-            max_input_length=5000,
+            max_input_length=3000,
             batch_overlap=200,
-            max_devices_per_batch=20,
-            safety_margin=0.8,
+            max_devices_per_batch=10,
+            safety_margin=0.7,
             max_batch_retries=2
         )
     
@@ -154,9 +155,31 @@ class BatchConfigPresets:
         )
     
     @staticmethod
+    def ultra_conservative() -> BatchConfig:
+        """超保守配置 - 适用于超大数据集，最小化token使用"""
+        return BatchConfig(
+            enable_auto_batch=True,
+            max_input_length=2000,
+            batch_overlap=200,
+            max_devices_per_batch=5,
+            safety_margin=0.5
+        )
+    
+    @staticmethod
     def recommend_for_data_size(device_count: int) -> BatchConfig:
         """根据设备数量推荐配置"""
-        return get_config_for_device_count(device_count)
+        if device_count <= 10:
+            return BatchConfigPresets.small_data()
+        elif device_count <= 50:
+            return BatchConfigPresets.conservative()
+        elif device_count <= 100:
+            return BatchConfigPresets.ultra_conservative()
+        elif device_count <= 500:
+            return BatchConfigPresets.balanced()
+        elif device_count <= 1000:
+            return BatchConfigPresets.aggressive()
+        else:
+            return BatchConfigPresets.large_data()
     
     @staticmethod
     def recommend_for_input_size(estimated_size: int) -> BatchConfig:
@@ -166,13 +189,15 @@ class BatchConfigPresets:
 
 def get_config_for_device_count(device_count: int) -> BatchConfig:
     """根据设备数量推荐配置"""
-    if device_count <= 20:
+    if device_count <= 10:
         return BatchConfigPresets.small_data()
     elif device_count <= 50:
         return BatchConfigPresets.conservative()
     elif device_count <= 100:
+        return BatchConfigPresets.ultra_conservative()
+    elif device_count <= 500:
         return BatchConfigPresets.balanced()
-    elif device_count <= 200:
+    elif device_count <= 1000:
         return BatchConfigPresets.aggressive()
     else:
         return BatchConfigPresets.large_data()
