@@ -1,103 +1,145 @@
-# 电网台区美化治理与打分系统
+# 思极地图坐标转换工具
 
-**Phase 1 基础框架** - 基于大模型的端到端自动化台区治理系统
+## 项目介绍
+这是一个用于思极地图坐标转换的工具，提供了多种获取API token的方式，并支持坐标转换功能。
 
 ## ⚡ 快速开始
 
-### 1. 使用uv配置环境
+### 1. 配置环境
 
 ```bash
 # 克隆项目到本地
 git clone <your-repo-url>
 cd dy_gis_mgx
 
-# 使用uv安装依赖
-uv sync
+# 创建虚拟环境
+python3 -m venv venv
 
-# 可选：安装开发依赖（包含wandb）
-uv sync --extra dev
+# 激活虚拟环境（macOS/Linux）
+source venv/bin/activate
+
+# 安装依赖
+pip install -r requirements.txt
 ```
 
-### 2. 环境变量配置（可选）
+### 2. 配置API Token
 
-```bash
-# 可选：设置千问API密钥（不设置将使用模拟模式）
-# Windows PowerShell
-$env:QWEN_API_KEY="your-qwen-api-key"
+有三种方式获取和配置API token：
 
-# Linux/macOS
-export QWEN_API_KEY="your-qwen-api-key"
+#### 方式1：手动配置（推荐）
+1. 打开浏览器，访问 [思极地图](https://map.sgcc.com.cn/)
+2. 登录您的账号
+3. 打开开发者工具 (F12 或 Command+Option+I)
+4. 切换到 Application 标签页
+5. 在左侧 Storage 下找到 Session Storage
+6. 查找并复制 accessToken 的值
+7. 设置环境变量:
+   ```bash
+   export SGCC_MAP_TOKEN=your_token_here
+   ```
+   可用的环境变量名称: SGCC_MAP_TOKEN, AUTH_TOKEN, SGCC_TOKEN
+8. 为了持久化环境变量，建议将其添加到 ~/.bashrc 或 ~/.zshrc 文件中:
+   ```bash
+   echo 'export SGCC_MAP_TOKEN=your_token_here' >> ~/.bashrc
+   source ~/.bashrc
+   ```
+9. 或者在代码中手动设置token:
+   ```python
+   from src.data.内网代码.token_manager import set_manual_token
+   set_manual_token('your_token_here')
+   ```
+
+   }
+   ```
+
+#### 方式2：使用备用token
+在 `token_manager.py` 中设置备用token：
+```python
+self.backup_tokens = [
+    "your_backup_token_1",
+    "your_backup_token_2",
+    # 更多备用token...
+]
 ```
 
-### 3. 运行演示
+#### 方式3：浏览器自动化获取
+工具会尝试自动通过浏览器获取token（需要Chrome驱动）
+
+### 3. 运行程序
 
 ```bash
-# 推荐：使用封装的运行脚本
-python run_demo.py
+# 确保已激活虚拟环境
+source venv/bin/activate
 
-# 或者：直接运行主程序
-python main.py
+# 运行主脚本
+python temp_code/main_coordinate_pipeline.py
 ```
 
 ## 🎯 核心功能
 
-- **输入**: 结构化GIS数据（设备坐标、地形要素等）
-- **处理**: 大模型基于数据进行自动化治理 + 美观性打分  
-- **输出**: 治理后的结构化数据 + 详细评分报告
-- **追踪**: 成本分析 + 完整日志
-- **并行**: 支持批量处理
-
-## 📊 演示结果
-
-运行演示后你将看到：
-
-1. **模型信息**: 可用模型列表和定价信息
-2. **单图处理**: 
-   - 美观性评分: 85.5/100
-   - 处理时间: ~0.20秒  
-   - 处理成本: ~$0.002360
-3. **批量处理**: 
-   - 3台区并行处理
-   - 100%成功率
-   - 总耗时: ~0.61秒
+- **坐标转换**: 支持多种坐标系统之间的转换
+- **Token管理**: 提供多种API token获取方式
+- **错误处理**: 完善的错误处理和日志记录
+- **离线支持**: 备用token机制支持离线环境
 
 ## 🏗️ 架构特点
 
-- **数据驱动**: 处理结构化GIS坐标数据，而非像素级图像
-- **模型无关**: 统一接口支持多种大模型（当前支持千问）
-- **成本透明**: 完整的token使用和费用追踪
-- **类型安全**: 使用dataclass和类型提示
-- **可扩展**: 新增模型只需继承BaseModel
+- **模块化设计**: 清晰的模块划分，易于维护
+- **多种token获取方式**: 支持手动配置、备用token和浏览器自动化
+- **完善的错误处理**: 详细的错误信息和解决方案提示
+- **类型安全**: 使用类型提示提高代码可读性和可维护性
 
 ## 📁 项目结构
 
 ```
 project/
-├── main.py                 # 主入口程序
-├── run_demo.py             # 演示运行脚本
-├── src/
-│   ├── core/               # 核心业务逻辑
-│   │   ├── data_types.py   # 数据类型定义
-│   │   └── ...
-│   ├── models/             # 大模型接口
-│   │   ├── base_model.py   # 模型基类
-│   │   ├── qwen_model.py   # 千问模型实现
-│   │   └── ...
-│   └── utils/              # 工具模块
-├── pyproject.toml          # 依赖配置
-└── README.md               # 项目说明
+├── temp_code/
+│   ├── main_coordinate_pipeline.py  # 主入口程序
+│   ├── token_manager.py             # Token管理模块
+│   └── test_chrome_driver.py        # Chrome驱动测试脚本
+├── requirements.txt                 # 依赖配置
+└── README.md                        # 项目说明
 ```
+
+## 🔧 工具与依赖
+
+- Python 3.8+
+- Selenium (浏览器自动化)
+- Webdriver-manager (Chrome驱动管理)
+- Requests (HTTP请求)
+- Python-dotenv (环境变量管理)
 
 ## 📋 当前状态
 
 | 模块 | 完成度 | 状态 |
 |------|--------|------|
-| 🟢 核心数据结构 | 100% | ✅ 完成 |
-| 🟢 千问模型集成 | 100% | ✅ 完成 |
-| 🟢 处理流程框架 | 95% | ✅ 完成 |
-| 🟢 成本计算系统 | 100% | ✅ 完成 |
-| 🟡 可视化工具 | 0% | 🚧 待实现 |
-| 🟡 WandB追踪 | 10% | 🚧 待实现 |
+| 🟢 坐标转换核心 | 100% | ✅ 完成 |
+| 🟢 Token管理模块 | 95% | ✅ 完成 |
+| 🟢 错误处理系统 | 100% | ✅ 完成 |
+| 🟡 Chrome驱动自动配置 | 70% | 🚧 部分实现 |
+| 🟢 备用token机制 | 100% | ✅ 完成 |
+
+## ❓ 常见问题
+
+### 1. Chrome驱动问题
+- 错误: `Could not reach host. Are you offline?`
+  解决方法: 检查网络连接，或手动安装Chrome驱动
+
+- 错误: `Unable to obtain driver for chrome`
+  解决方法: 确认Chrome驱动已正确安装并添加到系统PATH
+
+### 2. Token获取问题
+- 错误: `无法获取有效的API token，包括备用token`
+  解决方法: 按照手动获取token的指南操作，确保配置文件格式正确
+
+### 3. 网络连接问题
+- 如遇网络限制，建议使用手动获取token的方式
+
+## 📚 资源
+
+- [ChromeDriver下载](https://chromedriver.chromium.org/downloads)
+- [Selenium文档](https://www.selenium.dev/documentation/)
+- [思极地图官网](https://map.sgcc.com.cn/)
 | 🟡 其他模型 | 20% | 🚧 待实现 |
 
 ## 🔧 自动分批处理功能

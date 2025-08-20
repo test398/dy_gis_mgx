@@ -232,44 +232,35 @@ class TokenManager:
             return None
     
     def _load_token_from_config(self) -> Optional[str]:
-        """从配置文件加载token"""
-        # 优先从当前工作目录查找配置文件
-        config_files = [
-            'sgcc_map_token.json',  # 当前目录
-            os.path.expanduser('~/sgcc_map_token.json')  # 用户目录
-        ]
+        """从环境变量加载token"""
+        # 尝试从多个环境变量中获取token
+        env_vars = ['SGCC_MAP_TOKEN', 'AUTH_TOKEN', 'SGCC_TOKEN']
         
-        for config_file in config_files:
+        for env_var in env_vars:
             try:
-                if os.path.exists(config_file):
-                    with open(config_file, 'r', encoding='utf-8') as f:
-                        config = json.load(f)
-                        token = config.get('authorization')
-                        if token and not self._is_token_expired(token):
-                            logger.info(f"从配置文件加载有效token: {config_file}")
-                            return token
+                token = os.environ.get(env_var)
+                if token and not self._is_token_expired(token):
+                    logger.info(f"从环境变量加载有效token: {env_var}")
+                    return token
             except Exception as e:
-                logger.error(f"从配置文件 {config_file} 加载token失败: {e}")
+                logger.error(f"从环境变量 {env_var} 加载token失败: {e}")
+        logger.info("未从环境变量中找到有效token")
         return None
     
     def _save_token_to_config(self, token: str):
-        """保存token到配置文件"""
-        # 优先保存到当前工作目录
-        config_files = [
-            'sgcc_map_token.json',  # 当前目录
-            os.path.expanduser('~/sgcc_map_token.json')  # 用户目录
-        ]
+        """保存token到环境变量"""
+        # 设置多个环境变量以确保兼容性
+        env_vars = ['SGCC_MAP_TOKEN', 'AUTH_TOKEN', 'SGCC_TOKEN']
         
-        for config_file in config_files:
+        for env_var in env_vars:
             try:
-                config = {'authorization': token, 'updated_at': time.time()}
-                with open(config_file, 'w', encoding='utf-8') as f:
-                    json.dump(config, f, ensure_ascii=False, indent=2)
-                logger.info(f"Token已保存到配置文件: {config_file}")
-                return  # 成功保存后退出
+                os.environ[env_var] = token
+                logger.info(f"已设置环境变量: {env_var}")
             except Exception as e:
-                logger.error(f"保存token到配置文件 {config_file} 失败: {e}")
-                continue  # 尝试下一个路径
+                logger.error(f"设置环境变量 {env_var} 失败: {e}")
+        
+        logger.info("注意: 环境变量设置仅在当前进程有效，重启终端后需要重新设置")
+        logger.info("建议将环境变量添加到 ~/.bashrc 或 ~/.zshrc 文件中以保持持久化")
     
     def get_token(self, force_refresh: bool = False) -> Optional[str]:
         """获取有效的authorization token
@@ -319,9 +310,10 @@ class TokenManager:
         
         # 所有方法都失败
         logger.error("所有获取token的方法都失败了")
-        logger.info("请手动获取token并保存到配置文件中")
-        logger.info(f"配置文件路径: {os.path.expanduser('~/sgcc_map_token.json')}")
-        logger.info("配置文件格式: {\"authorization\": \"your_token_here\"}")
+        logger.info("请手动获取token并设置环境变量")
+        logger.info("可用的环境变量名称: SGCC_MAP_TOKEN, AUTH_TOKEN, SGCC_TOKEN")
+        logger.info("设置方式: export SGCC_MAP_TOKEN=your_token_here")
+        logger.info("建议将环境变量添加到 ~/.bashrc 或 ~/.zshrc 文件中以保持持久化")
         
         return None
     
@@ -444,6 +436,9 @@ if __name__ == "__main__":
     else:
         print("获取token失败")
         print("\n请手动获取token并使用以下方式设置:")
-        print("1. 创建配置文件: ~/sgcc_map_token.json")
-        print("2. 文件内容: {\"authorization\": \"your_token_here\"}")
+        print("1. 设置环境变量: export SGCC_MAP_TOKEN=your_token_here")
+        print("   可用的环境变量名称: SGCC_MAP_TOKEN, AUTH_TOKEN, SGCC_TOKEN")
+        print("2. 为了持久化环境变量，添加到 ~/.bashrc 或 ~/.zshrc 文件中:")
+        print("   echo 'export SGCC_MAP_TOKEN=your_token_here' >> ~/.bashrc")
+        print("   source ~/.bashrc")
         print("3. 或者在代码中调用: set_manual_token('your_token_here')")
