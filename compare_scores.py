@@ -137,6 +137,102 @@ class ScoreComparator:
                 'boundaries': {}
             }
 
+    def _load_area_test_data(self, tq_id: str) -> Dict[str, Any]:
+        """
+        根据台区ID加载对应的测试数据文件
+        
+        Args:
+            tq_id: 台区ID
+            
+        Returns:
+            Dict[str, Any]: 加载的测试数据，如果文件不存在则返回空字典
+        """
+        # 在多个可能的目录中查找台区数据文件
+        possible_paths = [
+            # 在GisData目录中查找
+            os.path.join("GisData", f"{tq_id}.json"),
+            os.path.join("GisData", "Building_detail", f"{tq_id}_detail.json"),
+            # 在当前目录查找
+            f"{tq_id}.json",
+            # 在test_data_path同级目录查找
+            os.path.join(os.path.dirname(self.test_data_path), f"{tq_id}.json")
+        ]
+        
+        data_file_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                data_file_path = path
+                break
+        
+        # 如果指定的台区数据文件不存在，尝试使用默认的测试数据
+        if not data_file_path:
+            logger.warning(f"台区 {tq_id} 的数据文件在以下路径均不存在: {possible_paths}，使用默认测试数据")
+            return self.test_data if self.test_data else {}
+        
+        try:
+            logger.info(f"为台区 {tq_id} 加载专属数据文件: {data_file_path}")
+            with open(data_file_path, 'r', encoding='utf-8') as f:
+                raw_data = json.load(f)
+
+            # 将标注数据转换为评分器期望的格式
+            converted_data = {
+                'devices': [],
+                'buildings': [],
+                'roads': [],
+                'rivers': [],
+                'boundaries': {}
+            }
+
+            # 处理标注数据
+            if 'annotations' in raw_data:
+                for annotation in raw_data['annotations']:
+                    label = annotation.get('label', '')
+                    # 映射标注标签到评分器期望的设备类型
+                    device_type = label
+                    if '电缆终端头' in label or '电缆头' in label:
+                        device_type = 'head'
+                    elif '电缆段' in label:
+                        device_type = 'cable_segment'
+                    elif '电杆' in label or '杆塔' in label:
+                        device_type = '杆塔'
+                    elif '墙支架' in label or '墙担' in label:
+                        device_type = '墙支架'
+                    elif '分支箱' in label:
+                        device_type = '分支箱'
+                    elif '接入点' in label:
+                        device_type = '接入点'
+                    elif '配电箱' in label or '计量箱' in label:
+                        device_type = '计量箱'
+
+                    # 计算中心点坐标（如果有多个点）
+                    points = annotation.get('points', [])
+                    x = y = 0.0
+                    if len(points) > 0:
+                        x = sum(p[0] for p in points) / len(points)
+                        y = sum(p[1] for p in points) / len(points)
+
+                    # 特殊处理分支箱：如果是分支箱，只保留中心点作为唯一的点
+                    if '分支箱' in label:
+                        points = [[x, y]]
+
+                    device = {
+                        'id': annotation.get('id', ''),
+                        'type': device_type,
+                        'label': label,
+                        'points': points,
+                        'x': x,
+                        'y': y,
+                        'properties': {},
+                        'flag': annotation.get('flag', '')
+                    }
+                    converted_data['devices'].append(device)
+
+            logger.info(f"成功加载台区 {tq_id} 的数据，共{len(converted_data['devices'])}个设备")
+            return converted_data
+        except Exception as e:
+            logger.error(f"加载台区 {tq_id} 数据失败: {e}，使用默认测试数据")
+            return self.test_data if self.test_data else {}
+
     def _load_manual_scores(self) -> Dict[str, Any]:
         """加载人工打分结果"""
         try:
@@ -198,8 +294,15 @@ class ScoreComparator:
             return {}
         return manual_scores
 
-    def score_single_area(self) -> Dict[str, Any]:
-        """对单个台区进行程序打分"""
+    def score_single_area(self, test_data: Dict[str, Any] = None) -> Dict[str, Any]:
+        """对单个台区进行程序打分
+        
+        Args:
+            test_data: 可选的测试数据，如果不提供则使用self.test_data
+        """
+        # 使用传入的test_data或默认的self.test_data
+        data_to_use = test_data if test_data is not None else self.test_data
+        
         logger.info("开始对单个台区进行程序打分")
         program_scores = {}
         total_score = 0.0
@@ -209,15 +312,15 @@ class ScoreComparator:
             try:
                 # 根据评分器类型调用相应的评分方法
                 if name == '架空线评分器':
-                    result = scorer.score_overhead_lines(self.test_data)
+                    result = scorer.score_overhead_lines(data_to_use)
                 elif name == '电缆线路评分器':
-                    result = scorer.score_cable_lines(self.test_data)
+                    result = scorer.score_cable_lines(data_to_use)
                 elif name == '分支箱评分器':
-                    result = scorer.score_branch_boxes(self.test_data)
+                    result = scorer.score_branch_boxes(data_to_use)
                 elif name == '接入点评分器':
-                    result = scorer.score_access_points(self.test_data)
+                    result = scorer.score_access_points(data_to_use)
                 elif name == '计量箱评分器':
-                    result = scorer.score_meter_boxes(self.test_data)
+                    result = scorer.score_meter_boxes(data_to_use)
                 else:
                     logger.warning(f"未知评分器类型: {name}")
                     continue
@@ -288,7 +391,7 @@ class ScoreComparator:
             # 打印所有可用的台区ID，帮助用户选择正确的ID
             if self.manual_scores:
                 logger.info(f"可用的台区ID列表: {list(self.manual_scores.keys())[:10]}{'...' if len(self.manual_scores) > 10 else ''}")
-            return comparison
+            # 函数不需要返回值，删除多余的return语句
 
         # 提取人工打分总分
         # 尝试多种可能的总分字段路径
@@ -352,7 +455,8 @@ class ScoreComparator:
 
             # 计算差异
             difference = program_info['score'] - manual_item_score
-            percentage_diff = (difference / manual_item_score * 100) if manual_item_score > 0 else 0
+            # 当人工得分为0时，差异百分比无意义，设置为None或特殊值
+            percentage_diff = (difference / manual_item_score * 100) if manual_item_score > 0 else None
 
             comparison['items'].append({
                 'program_name': program_name,
@@ -398,8 +502,10 @@ class ScoreComparator:
         for tq_id in tq_ids:
             logger.info(f"\n===== 处理台区: {tq_id} =====")
             try:
-                # 对单个台区进行打分
-                program_scores = self.score_single_area()
+                # 为当前台区加载专属的测试数据
+                area_test_data = self._load_area_test_data(tq_id)
+                # 使用台区专属数据进行程序打分
+                program_scores = self.score_single_area(test_data=area_test_data)
                 # 对比程序打分和人工打分
                 comparison = self.compare_with_manual(program_scores, tq_id)
                 results.append(comparison)
@@ -453,7 +559,9 @@ class ScoreComparator:
                 f.write("| 评分项   | 程序得分 | 人工得分 | 差异 | 差异百分比 |\n")
                 f.write("|----------|----------|----------|------|------------|\n")
                 for item in result['items']:
-                    f.write(f"| {item['manual_name']} | {item['program_score']:.1f} | {item['manual_score']:.1f} | {item['difference']:.1f} | {item['percentage_diff']:.2f}% |\n")
+                    # 处理差异百分比为None的情况
+                    percentage_str = f"{item['percentage_diff']:.2f}%" if item['percentage_diff'] is not None else "N/A"
+                    f.write(f"| {item['manual_name']} | {item['program_score']:.1f} | {item['manual_score']:.1f} | {item['difference']:.1f} | {percentage_str} |\n")
                 f.write("\n")
 
             # 添加总结和改进建议
@@ -479,9 +587,11 @@ class ScoreComparator:
                 logger.info(f"{item['program_name']} ({item['manual_name']}):")
                 logger.info(f"  程序得分: {item['program_score']}分")
             logger.info(f"  人工得分: {item['manual_score']}分")
-            logger.info(f"  差异: {item['difference']:.2f}分 ({item['percentage_diff']:.2f}%)")
+            # 处理差异百分比为None的情况
+            percentage_str = f"{item['percentage_diff']:.2f}%" if item['percentage_diff'] is not None else "N/A"
+            logger.info(f"  差异: {item['difference']:.2f}分 ({percentage_str})")
 
-        return comparison
+        # 函数不需要返回值，删除多余的return语句
 
 
 def main():
