@@ -35,6 +35,7 @@ from src.tracking import (
     generate_gis_metrics_report
 )
 from src.core.evaluation import evaluation_pipeline, calculate_beauty_score
+from src.core.evaluation_V2 import calculate_beauty_score2, evaluation_pipeline2
 from src.core.full_evaluation_workflow import full_evaluation_workflow
 from core.pipeline import process_batch
 from core.data_types import BatchInput, ImageInput, GISData
@@ -701,7 +702,8 @@ def _perform_scoring_analysis(selected_files: list, output_dir: str,
             }
             
             # 执行评分对比
-            score_result = calculate_beauty_score(original_data, treated_data)
+            # score_result = calculate_beauty_score(original_data, treated_data)  # 弃用
+            score_result = calculate_beauty_score2(original_data, treated_data)
             
             # 添加文件信息
             score_result['file_info'] = {
@@ -1033,9 +1035,9 @@ if __name__ == "__main__":
         "main.py",
         "--output", "D:\\work\\resGIS_qwen",
         "--enable-scoring",
-        "--enable-tracking",
+        # "--enable-tracking",
         "--save-scoring-details",
-        "--resume-run-id", "eyunvwgr",
-        "D:\\work\\dy_gis_mgx\\标注数据目录\\有对应关系的标注结果数据"
+        # "--resume-run-id", "eyunvwgr",
+        "D:\\work\\dy_gis_mgx\\temp_code\\data_zlq\\0ab6ffd36b8a06deec5b922dfb015c0ab410547654_zlq.json"
     ]
     main()

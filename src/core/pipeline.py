@@ -93,9 +93,12 @@ def process_single_image(
                 validated_input.visual_image_path = _generate_visualization_if_needed(validated_input)
             
             # 3. 获取模型实例
+            logger.info(f"🔧 获取模型实例: {model_name}")
             model = _get_model_instance(model_name, **kwargs)
+            logger.info(f"✅ 模型实例创建成功: {model_name}")
             
             # 4. 准备GIS数据字典格式
+            logger.info(f"📋 准备GIS数据字典格式")
             gis_dict = {
                 "devices": validated_input.gis_data.devices,
                 "buildings": validated_input.gis_data.buildings,
@@ -104,11 +107,14 @@ def process_single_image(
                 "boundaries": validated_input.gis_data.boundaries,
                 "metadata": validated_input.gis_data.metadata
             }
+            logger.info(f"📊 GIS数据统计 - 设备: {len(gis_dict.get('devices', []))}, 建筑: {len(gis_dict.get('buildings', []))}, 道路: {len(gis_dict.get('roads', []))}, 河流: {len(gis_dict.get('rivers', []))}")
             
             # 5. 调用治理模型
+            logger.info(f"🤖 开始调用治理模型: {model_name}")
             treatment_start = time.perf_counter()
             treatment_resp: TreatmentResponse = model.beautify(gis_dict, prompt, validated_input.visual_image_path)
             treatment_time = time.perf_counter() - treatment_start
+            logger.info(f"✅ 治理模型调用完成: {model_name}, 用时: {treatment_time:.2f}s")
             
             # 记录治理API调用到实验追踪器
             if experiment_tracker:
@@ -120,9 +126,12 @@ def process_single_image(
             logger.info(f"治理完成，用时: {treatment_time:.2f}s")
             
             # 6. 生成治理后的可视化图片
+            logger.info(f"🖼️ 生成治理后的可视化图片")
             treated_image_path = _generate_treated_visualization(treatment_resp.treated_gis_data)
+            logger.info(f"✅ 可视化图片生成完成: {treated_image_path}")
             
             # 7. 调用评分模型
+            logger.info(f"📊 准备治理后的GIS数据用于评分")
             eval_start = time.perf_counter()
             treated_gis_dict = {
                 "devices": treatment_resp.treated_gis_data.devices,
@@ -132,8 +141,10 @@ def process_single_image(
                 "boundaries": treatment_resp.treated_gis_data.boundaries,
                 "metadata": treatment_resp.treated_gis_data.metadata
             }
+            logger.info(f"🤖 开始调用评分模型: {model_name}")
             evaluation_resp: EvaluationResponse = model.evaluate(gis_dict, treated_gis_dict)
             eval_time = time.perf_counter() - eval_start
+            logger.info(f"✅ 评分模型调用完成: {model_name}, 用时: {eval_time:.2f}s")
             
             # 记录评分API调用到实验追踪器
             if experiment_tracker:
@@ -363,34 +374,61 @@ def _process_batch_parallel(
     **kwargs
 ) -> List[TreatmentResult]:
     """并行批量处理"""
+    logger.info(f"🚀 开始并行批量处理，输入数量: {len(inputs)}, 工作进程数: {max_workers}, 模型: {models}")
+    
     # 准备任务列表
     tasks = []
-    for image_input in inputs:
+    for i, image_input in enumerate(inputs):
         # 将qwen_batch_config添加到kwargs中
         task_kwargs = kwargs.copy()
         if qwen_batch_config is not None:
             task_kwargs['qwen_batch_config'] = qwen_batch_config
         tasks.append((image_input, models, experiment_tracker, task_kwargs))
+        if i < 5:  # 只记录前5个任务的详细信息
+            logger.info(f"  任务 {i+1}: {image_input.input_id}")
+    
+    if len(inputs) > 5:
+        logger.info(f"  ... 还有 {len(inputs)-5} 个任务")
+    
+    logger.info(f"📋 任务准备完成，开始创建进程池 (进程数: {max_workers})")
     
     # 使用进程池并行处理
-    with mp.Pool(processes=max_workers) as pool:
-        # 使用partial来传递固定参数
-        process_func = partial(_process_single_task)
-        results_nested = []
-        total = len(tasks)
-        for idx, result_list in enumerate(pool.imap(process_func, tasks), start=1):
-            results_nested.append(result_list)
-            if on_progress:
-                try:
-                    on_progress(idx, total, tasks[idx-1][0].input_id)
-                except Exception:
-                    pass
+    try:
+        with mp.Pool(processes=max_workers) as pool:
+            logger.info(f"✅ 进程池创建成功，开始分发任务")
+            
+            # 使用partial来传递固定参数
+            process_func = partial(_process_single_task)
+            results_nested = []
+            total = len(tasks)
+            
+            logger.info(f"🔄 开始处理 {total} 个任务...")
+            
+            for idx, result_list in enumerate(pool.imap(process_func, tasks), start=1):
+                results_nested.append(result_list)
+                
+                # 每处理10个任务或者是最后一个任务时记录进度
+                if idx % 10 == 0 or idx == total:
+                    logger.info(f"📊 并行处理进度: {idx}/{total} ({idx/total*100:.1f}%) - 当前任务: {tasks[idx-1][0].input_id}")
+                
+                if on_progress:
+                    try:
+                        on_progress(idx, total, tasks[idx-1][0].input_id)
+                    except Exception as e:
+                        logger.warning(f"进度回调失败: {e}")
+            
+            logger.info(f"🎉 所有任务处理完成，开始整理结果")
+    
+    except Exception as e:
+        logger.error(f"❌ 进程池处理过程中发生错误: {e}")
+        raise
     
     # 展平结果列表
     all_results = []
     for result_list in results_nested:
         all_results.extend(result_list)
     
+    logger.info(f"✨ 并行批量处理完成，总结果数: {len(all_results)}")
     return all_results
 
 
@@ -403,27 +441,42 @@ def _process_batch_sequential(
     **kwargs
 ) -> List[TreatmentResult]:
     """顺序批量处理"""
+    logger.info(f"🔄 开始顺序批量处理，输入数量: {len(inputs)}, 模型: {models}")
+    
     all_results = []
     
     total = len(inputs)
     for i, image_input in enumerate(inputs):
-        logger.info(f"处理图片 {i+1}/{total}: {image_input.input_id}")
+        logger.info(f"📋 处理图片 {i+1}/{total}: {image_input.input_id}")
+        
         try:
+            start_time = time.perf_counter()
+            
             # 将qwen_batch_config添加到kwargs中
             task_kwargs = kwargs.copy()
             if qwen_batch_config is not None:
                 task_kwargs['qwen_batch_config'] = qwen_batch_config
+            
             results = process_single_image(image_input, models, experiment_tracker=experiment_tracker, **task_kwargs)
             all_results.extend(results)
+            
+            end_time = time.perf_counter()
+            processing_time = end_time - start_time
+            
+            logger.info(f"✅ 图片处理完成 {i+1}/{total}: {image_input.input_id}, 用时: {processing_time:.2f}s, 结果数: {len(results)}")
+            
         except Exception as e:
-            logger.error(f"处理图片 {image_input.input_id} 失败: {e}")
+            logger.error(f"❌ 处理图片 {image_input.input_id} 失败: {e}")
+            import traceback
+            logger.error(f"❌ 错误堆栈: {traceback.format_exc()}")
         finally:
             if on_progress:
                 try:
                     on_progress(i+1, total, image_input.input_id)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"进度回调失败: {e}")
     
+    logger.info(f"✨ 顺序批量处理完成，总结果数: {len(all_results)}")
     return all_results
 
 
@@ -518,10 +571,26 @@ def _make_serializable(data: Any) -> Dict:
 def _process_single_task(task_data) -> List[TreatmentResult]:
     """处理单个任务（用于多进程）"""
     image_input, models, experiment_tracker, kwargs = task_data
+    
+    # 获取进程ID用于日志标识
+    import os
+    pid = os.getpid()
+    
+    logger.info(f"🔧 [PID:{pid}] 开始处理任务: {image_input.input_id}, 模型: {models}")
+    
     try:
-        return process_single_image(image_input, models, experiment_tracker=experiment_tracker, **kwargs)
+        start_time = time.perf_counter()
+        result = process_single_image(image_input, models, experiment_tracker=experiment_tracker, **kwargs)
+        end_time = time.perf_counter()
+        
+        processing_time = end_time - start_time
+        logger.info(f"✅ [PID:{pid}] 任务完成: {image_input.input_id}, 用时: {processing_time:.2f}s, 结果数: {len(result)}")
+        
+        return result
     except Exception as e:
-        logger.error(f"处理任务失败: {e}")
+        logger.error(f"❌ [PID:{pid}] 处理任务失败: {image_input.input_id}, 错误: {e}")
+        import traceback
+        logger.error(f"❌ [PID:{pid}] 错误堆栈: {traceback.format_exc()}")
         return []
 
 
